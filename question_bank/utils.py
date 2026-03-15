@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "gb18030")
 
 
 def utc_now_iso() -> str:
@@ -18,6 +20,23 @@ def utc_now_iso() -> str:
 def load_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8-sig") as handle:
         return json.load(handle)
+
+
+def load_text(path: Path) -> str:
+    for encoding in TEXT_ENCODINGS:
+        try:
+            return path.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def normalize_search_text(*parts: str | None, limit: int = 1000) -> str:
+    text = " ".join(part for part in parts if part)
+    text = re.sub(r"\\[A-Za-z@]+", " ", text)
+    text = re.sub(r"[{}\[\]$^_&%#~]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:limit]
 
 
 def dumps_json(data: Any) -> str:

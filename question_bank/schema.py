@@ -8,6 +8,7 @@ SCHEMA_STATEMENTS = [
         paper_type TEXT NOT NULL CHECK(paper_type IN ('regular', 'semifinal', 'final', 'other')),
         title TEXT NOT NULL,
         paper_latex_path TEXT NOT NULL,
+        paper_latex_source TEXT NOT NULL DEFAULT '',
         source_pdf_path TEXT,
         question_index_json TEXT NOT NULL DEFAULT '[]',
         notes TEXT,
@@ -23,7 +24,9 @@ SCHEMA_STATEMENTS = [
         question_no TEXT NOT NULL,
         category TEXT NOT NULL CHECK(category IN ('theory', 'experiment')),
         latex_path TEXT NOT NULL,
+        latex_source TEXT NOT NULL DEFAULT '',
         answer_latex_path TEXT,
+        answer_latex_source TEXT,
         latex_anchor TEXT,
         search_text TEXT,
         status TEXT NOT NULL CHECK(status IN ('raw', 'reviewed', 'published')),
@@ -128,3 +131,13 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_question_assets_question ON question_assets(question_id)",
     "CREATE INDEX IF NOT EXISTS idx_score_workbooks_paper ON score_workbooks(paper_id)",
 ]
+
+MIGRATION_COLUMNS = {
+    "papers": {
+        "paper_latex_source": "TEXT NOT NULL DEFAULT ''",
+    },
+    "questions": {
+        "latex_source": "TEXT NOT NULL DEFAULT ''",
+        "answer_latex_source": "TEXT",
+    },
+}

@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from question_bank.config import DEFAULT_DB_PATH
+from question_bank.config import DEFAULT_DB_PATH, RAW_DIR
 from question_bank.workbooks import upsert_score_workbook
 
 
@@ -31,7 +31,14 @@ def main() -> None:
         "file_path": args.workbook_path.name,
         "notes": args.notes,
     }
-    upsert_score_workbook(Path(args.db_path), paper_id=args.paper_id, workbook=workbook, bundle_path=bundle_root)
+    storage_root = RAW_DIR if str(args.workbook_path.resolve()).startswith(str(RAW_DIR.resolve())) else None
+    upsert_score_workbook(
+        Path(args.db_path),
+        paper_id=args.paper_id,
+        workbook=workbook,
+        bundle_path=bundle_root,
+        storage_root=storage_root,
+    )
     print(f"已写入 workbook: {args.workbook_id}")
 
 

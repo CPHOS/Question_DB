@@ -11,7 +11,7 @@ def _question_payload(conn, include_answers: bool) -> list[dict]:
     rows = conn.execute(
         """
         SELECT q.*, p.title AS paper_title, p.edition, p.paper_type, p.paper_latex_path,
-               p.source_pdf_path, p.question_index_json
+               p.paper_latex_source, p.source_pdf_path, p.question_index_json
         FROM questions q
         JOIN papers p ON p.paper_id = q.paper_id
         ORDER BY p.edition, p.paper_id, q.paper_index
@@ -54,12 +54,14 @@ def _question_payload(conn, include_answers: bool) -> list[dict]:
             "edition": row["edition"],
             "paper_type": row["paper_type"],
             "paper_latex_path": row["paper_latex_path"],
+            "paper_latex_source": row["paper_latex_source"],
             "source_pdf_path": row["source_pdf_path"],
             "paper_question_index": json.loads(row["question_index_json"]),
             "paper_index": row["paper_index"],
             "question_no": row["question_no"],
             "category": row["category"],
             "latex_path": row["latex_path"],
+            "latex_source": row["latex_source"],
             "latex_anchor": row["latex_anchor"],
             "search_text": row["search_text"],
             "status": row["status"],
@@ -72,6 +74,7 @@ def _question_payload(conn, include_answers: bool) -> list[dict]:
         }
         if include_answers:
             item["answer_latex_path"] = row["answer_latex_path"]
+            item["answer_latex_source"] = row["answer_latex_source"]
         payload.append(item)
     return payload
 

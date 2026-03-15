@@ -19,6 +19,37 @@ def list_papers(db_path: Path) -> list[dict]:
         return payload
 
 
+def get_paper_detail(db_path: Path, paper_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT paper_id, edition, paper_type, title, paper_latex_path, paper_latex_source,
+                   source_pdf_path, question_index_json, notes, created_at, updated_at
+            FROM papers
+            WHERE paper_id = ?
+            """,
+            (paper_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        questions = conn.execute(
+            """
+            SELECT question_id, paper_index, question_no, category, latex_path, answer_latex_path,
+                   latex_anchor, status, tags_json
+            FROM questions
+            WHERE paper_id = ?
+            ORDER BY paper_index
+            """,
+            (paper_id,),
+        ).fetchall()
+        payload = dict(row)
+        payload["question_index"] = json.loads(payload.pop("question_index_json"))
+        payload["questions"] = [
+            {**dict(item), "tags": json.loads(item["tags_json"])} for item in questions
+        ]
+        return payload
+
+
 def list_score_workbooks(db_path: Path, *, paper_id: str | None = None, exam_session: str | None = None) -> list[dict]:
     clauses = ["1 = 1"]
     params: list[object] = []
@@ -103,9 +134,9 @@ def list_questions(
         )
     if has_answer is not None:
         clauses.append(
-            "COALESCE(q.answer_latex_path, '') <> ''"
+            "COALESCE(q.answer_latex_source, '') <> ''"
             if has_answer
-            else "COALESCE(q.answer_latex_path, '') = ''"
+            else "COALESCE(q.answer_latex_source, '') = ''"
         )
     if min_avg_score is not None:
         clauses.append("EXISTS (SELECT 1 FROM question_stats qs WHERE qs.question_id = q.question_id AND qs.avg_score >= ?)")
@@ -117,8 +148,16 @@ def list_questions(
         clauses.append("q.tags_json LIKE ?")
         params.append(f'%"{tag}"%')
     if query is not None:
-        clauses.append("(COALESCE(q.search_text, '') LIKE ? OR q.latex_path LIKE ? OR COALESCE(q.latex_anchor, '') LIKE ?)")
-        params.extend([f"%{query}%", f"%{query}%", f"%{query}%"])
+        clauses.append(
+            "(" \
+            "COALESCE(q.search_text, '') LIKE ? OR "
+            "q.latex_path LIKE ? OR "
+            "COALESCE(q.latex_anchor, '') LIKE ? OR "
+            "COALESCE(q.latex_source, '') LIKE ? OR "
+            "COALESCE(q.answer_latex_source, '') LIKE ?" \
+            ")"
+        )
+        params.extend([f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
 
     sql = f"""
         SELECT q.question_id, q.paper_id, q.paper_index, q.question_no, q.category, q.status,
@@ -146,7 +185,7 @@ def get_question_detail(db_path: Path, question_id: str) -> dict | None:
         row = conn.execute(
             """
             SELECT q.*, p.edition, p.paper_type, p.title AS paper_title, p.paper_latex_path,
-                   p.source_pdf_path, p.question_index_json
+                   p.paper_latex_source, p.source_pdf_path, p.question_index_json
             FROM questions q
             JOIN papers p ON p.paper_id = q.paper_id
             WHERE q.question_id = ?

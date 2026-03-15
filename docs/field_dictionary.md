@@ -5,7 +5,8 @@
 - `edition`: 届数，不再默认使用自然年份。
 - `paper_type`: 试卷类型，推荐使用 `regular`、`semifinal`、`final`、`other`，分别对应常规、复赛、决赛和其他。
 - `title`: 试卷标题。
-- `paper_latex_path`: 试卷主 LaTeX 文件索引路径。
+- `paper_latex_path`: 试卷主 LaTeX 文件来源路径，用于追溯原始工程文件。
+- `paper_latex_source`: 试卷主 LaTeX 文本快照，导入时直接写入数据库。
 - `source_pdf_path`: 可选的编译后 PDF 或历史 PDF 路径。
 - `question_index_json`: 试卷内题目索引，按 `paper_index` 保存题目顺序和 LaTeX 引用。
 - `notes`: 内部备注。
@@ -16,10 +17,12 @@
 - `paper_index`: 题目在卷内的顺序索引，用它而不是页码定位。
 - `question_no`: 展示用题号。
 - `category`: `theory` 或 `experiment`。
-- `latex_path`: 题目主体 LaTeX 文件路径。
-- `answer_latex_path`: 解答或答案 LaTeX 文件路径。
+- `latex_path`: 题目主体 LaTeX 文件来源路径。
+- `latex_source`: 题目主体 LaTeX 文本快照。
+- `answer_latex_path`: 解答或答案 LaTeX 文件来源路径。
+- `answer_latex_source`: 解答或答案 LaTeX 文本快照。
 - `latex_anchor`: 题目在 LaTeX 中的锚点或逻辑索引。
-- `search_text`: 用于检索和去重的文本索引，不是主存内容。
+- `search_text`: 用于检索和去重的文本索引，可人工指定，也可由 LaTeX 内容派生。
 - `status`: `raw`、`reviewed`、`published`。
 - `tags_json`: 标签数组。
 - `notes`: 题目备注。
@@ -27,7 +30,7 @@
 ## question_assets
 - `asset_id`: 资产唯一 ID。
 - `kind`: `statement_image`、`answer_image`、`figure`。
-- `file_path`: 资产相对路径。
+- `file_path`: 资产在服务器文件系统中的来源路径或相对索引路径。
 - `sha256`: 文件哈希。
 - `caption`: 图注。
 - `sort_order`: 同一道题多个图片时的顺序。
@@ -38,7 +41,7 @@
 - `exam_session`: 场次标签。
 - `workbook_kind`: 工作簿类型，例如 `paper_registry`、`score_table`。
 - `source_filename`: 原始文件名。
-- `file_path`: 工作簿在服务器文件系统中的索引路径。
+- `file_path`: 工作簿在服务器文件系统中的来源路径或相对索引路径。
 - `sheet_names_json`: 工作表名称列表。
 - `file_size`: 文件字节数。
 - `sha256`: 工作簿哈希。

@@ -19,11 +19,11 @@ class InitAndImportTests(unittest.TestCase):
         self.assertEqual(result["imported_workbooks"], 1)
         with connect(db_path) as conn:
             paper = conn.execute(
-                "SELECT edition, paper_type, paper_latex_path, question_index_json FROM papers WHERE paper_id = ?",
+                "SELECT edition, paper_type, paper_latex_path, paper_latex_source, question_index_json FROM papers WHERE paper_id = ?",
                 ("CPHOS-18-REGULAR-DEMO",),
             ).fetchone()
             question = conn.execute(
-                "SELECT paper_index, latex_path, answer_latex_path, search_text FROM questions WHERE question_id = ?",
+                "SELECT paper_index, latex_path, latex_source, answer_latex_path, answer_latex_source, search_text FROM questions WHERE question_id = ?",
                 ("QB-2024-T-01",),
             ).fetchone()
             workbook = conn.execute(
@@ -37,10 +37,13 @@ class InitAndImportTests(unittest.TestCase):
         self.assertEqual(paper["edition"], 18)
         self.assertEqual(paper["paper_type"], "regular")
         self.assertIn("samples/demo_bundle/latex/papers/demo-paper.tex", paper["paper_latex_path"])
+        self.assertIn("\\documentclass", paper["paper_latex_source"])
         self.assertEqual(question["paper_index"], 1)
         self.assertIn("samples/demo_bundle/latex/questions/QB-2024-T-01.tex", question["latex_path"])
         self.assertIn("samples/demo_bundle/latex/answers/QB-2024-T-01-answer.tex", question["answer_latex_path"])
         self.assertIn("mechanics", question["search_text"])
+        self.assertIn("\\begin{problem}", question["latex_source"])
+        self.assertIn("\\begin{solution}", question["answer_latex_source"])
         self.assertEqual(workbook["workbook_kind"], "paper_registry")
         self.assertEqual(workbook["source_filename"], "demo_score_index.xlsx")
         self.assertGreater(workbook["file_size"], 0)
