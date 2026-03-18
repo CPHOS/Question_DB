@@ -30,3 +30,6 @@ exports/*.csv
 !.env.example
 deploy/*.local.*
 deploy/*.secret.*
+
+# Rust build artifacts
+rust/target/

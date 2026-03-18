@@ -26,7 +26,9 @@
 - `samples/demo_bundle/`: 样例 bundle，演示 LaTeX 试卷、题目、答案和 xlsx workbook 的入库方式。
 - `assets/`: 样例图片或开发环境静态资源。
 - `docs/`: 字段字典、录入规范、维护手册、部署说明、FAQ。
+- `docs/rust_rearchitecture_proposal.md`: Rust + PostgreSQL + 对象存储的重构建议与迁移路线。
 - `tests/`: 围绕样例库的基础测试。
+- `rust/`: Rust 重构起步目录（`axum` API + PostgreSQL migration 草案）。
 
 ## 服务器工作流
 ### 1. 在服务器上准备一套 bundle
@@ -178,3 +180,19 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 - 统计工作簿：`demo_score_index.xlsx`
 
 这些样例仅用于本地开发验证，不代表生产库位置或生产部署方式。
+
+
+## Rust 重构（Phase 1 起步）
+当前仓库已新增 `rust/` 目录，用于承接“Rust + PostgreSQL + 对象存储”重构第一阶段：
+- `rust/qb_api`: 最小可运行的 Rust API 服务（当前提供 `/health`）。
+- `rust/migrations/0001_init_pg.sql`: PostgreSQL 初始 schema 草案，开始从 `*_path + *_source/blob` 迁移到对象引用（`object_id`）。
+
+本地运行（需要本机有 Rust 工具链）：
+```bash
+cd rust
+cargo test
+```
+
+启动服务前需要配置环境变量：
+- `QB_DATABASE_URL`（例如 `postgres://postgres:postgres@localhost:5432/qb`）
+- `QB_BIND_ADDR`（可选，默认 `0.0.0.0:8080`）
