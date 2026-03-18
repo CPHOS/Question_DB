@@ -184,8 +184,8 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 ## Rust 重构（Phase 1 起步）
 当前仓库已新增 `rust/` 目录，用于承接“Rust + PostgreSQL + 对象存储”重构第一阶段：
-- `rust/qb_api`: 最小可运行的 Rust API 服务（当前提供 `/health`）。
-- `rust/migrations/0001_init_pg.sql`: PostgreSQL 初始 schema 草案，开始从 `*_path + *_source/blob` 迁移到对象引用（`object_id`）。
+- `rust/qb_api`: Rust 只读查询 API，已迁移 `/health`、`/papers`、`/papers/{paper_id}`、`/questions`、`/questions/{question_id}`、`/score-workbooks`、`/score-workbooks/{workbook_id}`。
+- `rust/migrations/0001_init_pg.sql`: PostgreSQL 初始 schema 草案，已补齐对象、题目、题目资产、统计、难度与成绩工作簿等核心查询表，开始从 `*_path + *_source/blob` 迁移到对象引用（`object_id`）。
 
 本地运行（需要本机有 Rust 工具链）：
 ```bash

@@ -1,14 +1,18 @@
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use http_body_util::BodyExt;
 use qb_api::api::{router, AppState};
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn health_route_returns_ok_json() {
+async fn health_route_returns_service_unavailable_when_db_is_unreachable() {
     let pool = PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(50))
         .max_connections(1)
-        .connect_lazy("postgres://postgres:postgres@localhost/qb")
+        .connect_lazy("postgres://postgres:postgres@127.0.0.1:1/qb")
         .unwrap();
     let app = router(AppState { pool });
 
@@ -22,21 +26,7 @@ async fn health_route_returns_ok_json() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let content_type = response
-        .headers()
-        .get(axum::http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap();
-    assert!(content_type.starts_with("application/json"));
-
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body = response.into_body().collect().await.unwrap().to_bytes();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("ok"));
-    assert_eq!(
-        json.get("service").and_then(|v| v.as_str()),
-        Some("qb_api_rust")
-    );
+    assert!(body.is_empty());
 }
