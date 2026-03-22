@@ -51,8 +51,7 @@ CREATE TABLE IF NOT EXISTS papers (
     paper_id UUID PRIMARY KEY,
     edition TEXT,
     paper_type TEXT NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
+    description TEXT NOT NULL CHECK (btrim(description) <> ''),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

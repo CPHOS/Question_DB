@@ -12,15 +12,30 @@
 {
   "edition": "2026",
   "paper_type": "regular",
-  "title": "Demo paper",
-  "description": "optional",
+  "description": "Demo paper",
   "question_ids": ["uuid-1", "uuid-2"]
 }
 ```
 
+说明：
+
+- `description` 为必填，必须是非空字符串
+- `description` 支持中文
+
 ### `GET /papers`
 
-列出试卷摘要，包括题目数量。
+按条件分页查询试卷，搜索也统一走这个接口。
+
+支持的 query 参数：
+
+- `question_id`
+- `paper_type`
+- `category`
+- `tag`
+- `q`
+  关键词搜索，只会匹配 `description`
+- `limit`
+- `offset`
 
 ### `GET /papers/{paper_id}`
 
@@ -34,9 +49,10 @@
 
 - `edition`
 - `paper_type`
-- `title`
 - `description`
 - `question_ids`
+
+其中 `description` 如果出现在更新请求里，必须是非空字符串。
 
 成功时返回更新后的完整试卷详情。
 

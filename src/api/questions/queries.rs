@@ -222,7 +222,6 @@ pub(crate) fn map_paper_summary(row: PgRow) -> PaperSummary {
         paper_id: row.get("paper_id"),
         edition: row.get("edition"),
         paper_type: row.get("paper_type"),
-        title: row.get("title"),
         description: row.get("description"),
         question_count: row.get("question_count"),
         created_at: row.get("created_at"),
@@ -269,7 +268,6 @@ pub(crate) fn map_question_paper_ref(row: PgRow) -> QuestionPaperRef {
         paper_id: row.get("paper_id"),
         edition: row.get("edition"),
         paper_type: row.get("paper_type"),
-        title: row.get("title"),
         sort_order: row.get("sort_order"),
     }
 }
@@ -309,7 +307,6 @@ pub(crate) fn map_paper_detail(row: PgRow, questions: Vec<PaperQuestionSummary>)
         paper_id: row.get("paper_id"),
         edition: row.get("edition"),
         paper_type: row.get("paper_type"),
-        title: row.get("title"),
         description: row.get("description"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),

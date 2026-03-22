@@ -293,7 +293,7 @@ async fn load_question_bundle_data(pool: &PgPool, question_id: &str) -> Result<Q
 
     let papers = query(
         r#"
-        SELECT p.paper_id::text AS paper_id, p.edition, p.paper_type, p.title, pq.sort_order
+        SELECT p.paper_id::text AS paper_id, p.edition, p.paper_type, pq.sort_order
         FROM paper_questions pq
         JOIN papers p ON p.paper_id = pq.paper_id
         WHERE pq.question_id = $1::uuid
@@ -309,7 +309,6 @@ async fn load_question_bundle_data(pool: &PgPool, question_id: &str) -> Result<Q
         paper_id: row.get("paper_id"),
         edition: row.get("edition"),
         paper_type: row.get("paper_type"),
-        title: row.get("title"),
         sort_order: row.get("sort_order"),
     })
     .collect::<Vec<_>>();
@@ -326,7 +325,7 @@ async fn load_question_bundle_data(pool: &PgPool, question_id: &str) -> Result<Q
 async fn load_paper_bundle_data(pool: &PgPool, paper_id: &str) -> Result<PaperBundleData> {
     let paper_row = query(
         r#"
-        SELECT paper_id::text AS paper_id, edition, paper_type, title, description,
+        SELECT paper_id::text AS paper_id, edition, paper_type, description,
                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
         FROM papers

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::Context;
 use axum::{
-    extract::{Path as AxumPath, State},
+    extract::{Path as AxumPath, Query, State},
     http::StatusCode,
     Json,
 };
@@ -10,9 +10,10 @@ use sqlx::{query, Row};
 use uuid::Uuid;
 
 use super::models::{
-    validate_paper_type, CreatePaperRequest, PaperDeleteResponse, PaperDetail, PaperWriteResponse,
+    CreatePaperRequest, PaperDeleteResponse, PaperDetail, PaperWriteResponse, PapersParams,
     UpdatePaperRequest,
 };
+use super::queries::{execute_papers_query, validate_and_build_papers_query};
 use crate::api::{
     questions::queries::{
         load_question_tags, map_paper_detail, map_paper_question_summary, map_paper_summary,
@@ -22,23 +23,13 @@ use crate::api::{
 };
 
 pub(crate) async fn list_papers(
+    Query(params): Query<PapersParams>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<super::models::PaperSummary>>, StatusCode> {
-    let rows = query(
-        r#"
-        SELECT p.paper_id::text AS paper_id, p.edition, p.paper_type, p.title, p.description,
-               COUNT(pq.question_id) AS question_count,
-               to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
-               to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
-        FROM papers p
-        LEFT JOIN paper_questions pq ON pq.paper_id = p.paper_id
-        GROUP BY p.paper_id, p.edition, p.paper_type, p.title, p.description, p.created_at, p.updated_at
-        ORDER BY p.created_at DESC, p.paper_id
-        "#,
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let plan = validate_and_build_papers_query(&params).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let rows = execute_papers_query(&state.pool, &params, &plan)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(rows.into_iter().map(map_paper_summary).collect()))
 }
@@ -47,12 +38,9 @@ pub(crate) async fn create_paper(
     State(state): State<AppState>,
     Json(request): Json<CreatePaperRequest>,
 ) -> ApiResult<PaperWriteResponse> {
-    let paper_type = request.paper_type.trim().to_string();
-    validate_paper_type(&paper_type).map_err(|err| ApiError::bad_request(err.to_string()))?;
-
-    if request.question_ids.is_empty() {
-        return Err(ApiError::bad_request("question_ids must not be empty"));
-    }
+    let request = request
+        .normalize()
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
 
     let mut seen_question_ids = HashSet::new();
     for question_id in &request.question_ids {
@@ -73,16 +61,15 @@ pub(crate) async fn create_paper(
     query(
         r#"
         INSERT INTO papers (
-            paper_id, edition, paper_type, title, description, created_at, updated_at
+            paper_id, edition, paper_type, description, created_at, updated_at
         )
-        VALUES ($1::uuid, $2, $3, $4, $5, NOW(), NOW())
+        VALUES ($1::uuid, $2, $3, $4, NOW(), NOW())
         "#,
     )
     .bind(&paper_id)
     .bind(request.edition.as_deref())
-    .bind(&paper_type)
-    .bind(&request.title)
-    .bind(request.description.as_deref())
+    .bind(&request.paper_type)
+    .bind(&request.description)
     .execute(&mut *tx)
     .await
     .context("insert paper failed")?;
@@ -168,19 +155,10 @@ pub(crate) async fn update_paper(
             .context("update paper type failed")?;
     }
 
-    if let Some(title) = &update.title {
-        query("UPDATE papers SET title = $2, updated_at = NOW() WHERE paper_id = $1::uuid")
-            .bind(&paper_id)
-            .bind(title)
-            .execute(&mut *tx)
-            .await
-            .context("update paper title failed")?;
-    }
-
     if let Some(description) = &update.description {
         query("UPDATE papers SET description = $2, updated_at = NOW() WHERE paper_id = $1::uuid")
             .bind(&paper_id)
-            .bind(description.as_deref())
+            .bind(description)
             .execute(&mut *tx)
             .await
             .context("update paper description failed")?;
@@ -263,7 +241,7 @@ pub(crate) async fn get_paper_detail(
 async fn fetch_paper_detail(state: &AppState, paper_id: &str) -> Result<PaperDetail, ApiError> {
     let paper_row = query(
         r#"
-        SELECT paper_id::text AS paper_id, edition, paper_type, title, description,
+        SELECT paper_id::text AS paper_id, edition, paper_type, description,
                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
         FROM papers

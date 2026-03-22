@@ -162,8 +162,7 @@ curl -X POST http://127.0.0.1:8080/questions \
 {
   "edition": "2026",
   "paper_type": "regular",
-  "title": "CPHOS Mock Paper",
-  "description": "demo",
+  "description": "demo paper",
   "question_ids": [
     "8db0d12e-2968-4ede-86d5-1dc5ff0a5d10",
     "e21ed70d-cd18-45cc-89ab-2785d07f4de7"
@@ -172,6 +171,12 @@ curl -X POST http://127.0.0.1:8080/questions \
 ```
 
 题目顺序由 `question_ids` 数组顺序决定。
+
+说明：
+
+- `description` 为必填，必须是非空字符串
+- `GET /papers` 支持通过 `question_id`、`paper_type`、`category`、`tag`、`q`、`limit`、`offset` 做组合查询
+- `q` 只会模糊匹配试卷的 `description`
 
 ### 更新试卷
 

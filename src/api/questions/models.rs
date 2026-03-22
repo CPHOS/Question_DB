@@ -53,7 +53,6 @@ pub struct QuestionPaperRef {
     pub(crate) paper_id: String,
     pub(crate) edition: Option<String>,
     pub(crate) paper_type: String,
-    pub(crate) title: String,
     pub(crate) sort_order: i32,
 }
 

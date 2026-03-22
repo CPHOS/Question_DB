@@ -731,8 +731,7 @@ def main() -> None:
             payload={
                 "edition": "2026",
                 "paper_type": "regular",
-                "title": "Mock A",
-                "description": "first multi-question paper",
+                "description": "综合训练试卷 A",
                 "question_ids": [
                     question_by_slug["mechanics"],
                     question_by_slug["optics"],
@@ -749,8 +748,7 @@ def main() -> None:
             payload={
                 "edition": "2026",
                 "paper_type": "final",
-                "title": "Mock B",
-                "description": "second multi-question paper",
+                "description": "热学决赛卷",
                 "question_ids": [
                     question_by_slug["optics"],
                     question_by_slug["thermal"],
@@ -764,6 +762,20 @@ def main() -> None:
         _, body, _ = perform_request("GET /papers", 200, path="/papers")
         ensure(len(parse_json(body)) == 2, "paper list should contain two papers")
 
+        _, body, _ = perform_request(
+            "GET /papers?q=热学",
+            200,
+            path="/papers?q=%E7%83%AD%E5%AD%A6",
+        )
+        ensure(paper_b_id in body, "paper description search should return paper B")
+
+        _, body, _ = perform_request(
+            "GET /papers?paper_type=final&category=E&tag=optics&q=热学",
+            200,
+            path="/papers?paper_type=final&category=E&tag=optics&q=%E7%83%AD%E5%AD%A6",
+        )
+        ensure(paper_b_id in body, "combined paper filters should return paper B")
+
         perform_request(
             "GET /papers/{paper_a}",
             200,
@@ -776,8 +788,7 @@ def main() -> None:
             method="PATCH",
             path=f"/papers/{paper_a_id}",
             payload={
-                "title": "Mock A Revised",
-                "description": "reordered for bundle validation",
+                "description": "综合训练重排卷",
                 "question_ids": [
                     question_by_slug["thermal"],
                     question_by_slug["mechanics"],
@@ -785,7 +796,7 @@ def main() -> None:
                 ],
             },
         )
-        ensure("Mock A Revised" in body, "paper patch should update title")
+        ensure("综合训练重排卷" in body, "paper patch should update description")
 
         _, body, _ = perform_request(
             "GET /questions?paper_id={paper_a}",

@@ -1,5 +1,6 @@
 pub(crate) mod handlers;
 pub(crate) mod models;
+pub(crate) mod queries;
 
 use axum::{routing::get, Router};
 

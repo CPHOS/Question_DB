@@ -88,12 +88,9 @@ pub(crate) async fn create_question(
                     .to_vec();
             }
             "description" => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|err| {
-                        ApiError::bad_request(format!("read description field failed: {err}"))
-                    })?;
+                let value = field.text().await.map_err(|err| {
+                    ApiError::bad_request(format!("read description field failed: {err}"))
+                })?;
                 description = Some(value);
             }
             _ => {}
@@ -109,9 +106,7 @@ pub(crate) async fn create_question(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            ApiError::bad_request(
-                "multipart form must include a non-empty 'description' field",
-            )
+            ApiError::bad_request("multipart form must include a non-empty 'description' field")
         })?;
     if bytes.len() > MAX_UPLOAD_BYTES {
         return Err(ApiError::bad_request("uploaded zip exceeds 20 MiB limit"));
@@ -354,7 +349,7 @@ async fn fetch_question_detail(
 
     let papers = query(
         r#"
-        SELECT p.paper_id::text AS paper_id, p.edition, p.paper_type, p.title, pq.sort_order
+        SELECT p.paper_id::text AS paper_id, p.edition, p.paper_type, pq.sort_order
         FROM paper_questions pq
         JOIN papers p ON p.paper_id = pq.paper_id
         WHERE pq.question_id = $1::uuid
