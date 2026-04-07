@@ -31,6 +31,7 @@ def build_sample_question_zips(samples_dir: Path) -> list[Path]:
         zip_path = samples_dir / spec["zip_name"]
         with zipfile.ZipFile(zip_path, "w") as archive:
             archive.writestr(spec["tex_name"], spec["tex_body"])
+            archive.writestr("README.txt", "ignored root helper file\n")
             archive.writestr("assets/", b"")
             for asset_path, content in spec["assets"].items():
                 archive.writestr(asset_path, content)

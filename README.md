@@ -71,13 +71,14 @@ src/
 
 ## 题目 zip 格式
 
-上传文件大小限制 20 MiB，使用 `multipart/form-data`，字段名是 `file`。
+上传文件大小限制 20 MiB，使用 `multipart/form-data`，字段名是 `file`。zip 总解压体积限制 64 MiB。
 
-zip 根目录下必须是标准题目录入包格式：
+zip 会按“逻辑根目录”解析：如果最外层只有一个包裹目录，会先自动剥离一层。逻辑根目录建议如下：
 
 ```text
 question.zip
 ├── problem.tex
+├── README.txt        # 可选，忽略
 └── assets/
     ├── figure1.png
     └── ...
@@ -85,10 +86,13 @@ question.zip
 
 其中：
 
-- zip 根目录必须恰好有一个 `.tex` 文件
-- zip 根目录必须恰好有一个 `assets/` 目录
-- 除根目录 tex 和 `assets/` 下资源外，不允许额外文件或目录
-- tex 和 `assets/` 下的资源文件都会写入 `objects` 表
+- 逻辑根目录必须恰好有一个 `.tex` 文件
+- 可选一个 `assets/` 目录
+- 逻辑根目录下其他杂散文件会被忽略，不参与导入
+- 除根目录 tex / 杂散文件外，其他被导入的非根目录文件都必须位于 `assets/` 下
+- 拒绝路径穿越（`..`）和绝对路径
+- 总解压体积不能超过 64 MiB
+- 真正写入 `objects` 表的只有 tex 和 `assets/` 下的资源文件
 - 上传题目时必须额外提供一个非空的 `description`
 - 上传题目时必须额外提供一个 `difficulty` JSON 字符串，且至少包含 `human`
 - 上传题目时也可以一次性提供完整 metadata：

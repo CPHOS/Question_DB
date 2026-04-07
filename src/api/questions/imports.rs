@@ -280,11 +280,6 @@ fn validate_standard_layout(
             [file_name] => {
                 if is_tex_file(file_name) {
                     root_tex_files.push(file.clone());
-                } else {
-                    bail!(
-                        "zip root may only contain one .tex file and one assets/ directory, found unexpected file: {}",
-                        file.path
-                    );
                 }
             }
             [root_dir, ..] => {
@@ -522,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn load_question_zip_rejects_extra_root_file() {
+    fn load_question_zip_ignores_extra_root_file() {
         let cursor = std::io::Cursor::new(Vec::new());
         let mut writer = ZipWriter::new(cursor);
         let options = SimpleFileOptions::default();
@@ -535,8 +530,10 @@ mod tests {
         writer.write_all(b"png").unwrap();
 
         let zip = writer.finish().unwrap().into_inner();
-        let err = load_question_zip(&zip).expect_err("zip should be rejected");
-        assert!(err.to_string().contains("unexpected file"));
+        let loaded = load_question_zip(&zip).expect("zip should parse");
+        assert_eq!(loaded.tex_file.path, "problem.tex");
+        assert_eq!(loaded.asset_files.len(), 1);
+        assert_eq!(loaded.asset_files[0].path, "assets/fig1.png");
     }
 
     #[test]
@@ -653,6 +650,28 @@ mod tests {
 
         writer.start_file("wrapped/problem.tex", options).unwrap();
         writer.write_all(br"\section{Demo}").unwrap();
+        writer
+            .start_file("wrapped/assets/fig.png", options)
+            .unwrap();
+        writer.write_all(b"png").unwrap();
+
+        let zip = writer.finish().unwrap().into_inner();
+        let loaded = load_question_zip(&zip).expect("zip should parse");
+        assert_eq!(loaded.tex_file.path, "problem.tex");
+        assert_eq!(loaded.asset_files.len(), 1);
+        assert_eq!(loaded.asset_files[0].path, "assets/fig.png");
+    }
+
+    #[test]
+    fn load_question_zip_ignores_extra_root_file_in_wrapping_directory() {
+        let cursor = std::io::Cursor::new(Vec::new());
+        let mut writer = ZipWriter::new(cursor);
+        let options = SimpleFileOptions::default();
+
+        writer.start_file("wrapped/problem.tex", options).unwrap();
+        writer.write_all(br"\section{Demo}").unwrap();
+        writer.start_file("wrapped/README.txt", options).unwrap();
+        writer.write_all(b"ignored").unwrap();
         writer
             .start_file("wrapped/assets/fig.png", options)
             .unwrap();
