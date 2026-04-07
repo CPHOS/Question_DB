@@ -81,6 +81,11 @@ pub struct QuestionDetail {
     pub(crate) papers: Vec<QuestionPaperRef>,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct QuestionTagsResponse {
+    pub(crate) tags: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct QuestionsParams {
     pub(crate) paper_id: Option<String>,

@@ -257,6 +257,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 - `GET /papers/{paper_id}`
 - `POST /papers/bundles`
 - `GET /questions`
+- `GET /questions/tags`
 - `GET /questions/{question_id}`
 - `POST /questions/bundles`
 - `GET /admin/questions`
@@ -277,6 +278,12 @@ curl -X POST http://127.0.0.1:8080/papers \
 - `difficulty_max`
 
 其中 `difficulty_min` / `difficulty_max` 需要和 `difficulty_tag` 一起使用。
+
+`GET /questions/tags` 返回：
+
+- 所有未软删除题目的去重 tag 列表
+- 响应格式为 `{"tags": ["..."]}`
+- 按字典序升序返回，适合前端做输入联想和快速选择
 
 说明：
 

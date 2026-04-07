@@ -269,6 +269,12 @@ def test_filter_questions(api, state):
     )
 
 
+def test_list_question_tags(api, state):
+    """List active question tags for frontend autocomplete."""
+    tags = parse_json(api.get("/questions/tags")[1])["tags"]
+    assert tags == ["kinematics", "lenses", "mechanics", "optics"]
+
+
 def test_question_detail(api, state):
     qs = state.q_by_slug
 

@@ -17,6 +17,7 @@ def test_soft_delete_and_admin_visibility(api, state):
     """Soft-delete one paper and one question, verify admin view."""
     restorable_paper = state.theory_paper_ids[1]
     restorable_question = state.rt_q_ids[4]
+    restorable_tag = state.real_theory_fixtures[4].patch["tags"][-1]
 
     # Soft-delete paper
     api.delete(f"/papers/{restorable_paper}")
@@ -44,11 +45,15 @@ def test_soft_delete_and_admin_visibility(api, state):
     assert detail["is_deleted"]
     assert detail["deleted_at"] is not None
 
+    active_tags = parse_json(api.get("/questions/tags")[1])["tags"]
+    assert restorable_tag not in active_tags
+
 
 def test_restore_flow(api, state):
     """Restore blocked by deleted dependency, then succeed in order."""
     paper_id = state.theory_paper_ids[1]
     question_id = state.rt_q_ids[4]
+    restored_tag = state.real_theory_fixtures[4].patch["tags"][-1]
 
     # Paper restore blocked because its question is still deleted
     api.post_json(f"/admin/papers/{paper_id}/restore", {}, expect=409)
@@ -59,6 +64,7 @@ def test_restore_flow(api, state):
     )
     assert not resp["is_deleted"]
     api.get(f"/questions/{question_id}")
+    assert restored_tag in parse_json(api.get("/questions/tags")[1])["tags"]
 
     # Now paper restore succeeds
     resp = parse_json(

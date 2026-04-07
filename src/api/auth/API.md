@@ -20,7 +20,7 @@
 | `GET /auth/me` | — | ✅ | ✅ | ✅ |
 | `PATCH /auth/me/password` | — | ✅ | ✅ | ✅ |
 | `POST /auth/logout` | — | ✅ | ✅ | ✅ |
-| `GET /questions`、`GET /papers` | — | ✅ | ✅ | ✅ |
+| `GET /questions`、`GET /questions/tags`、`GET /papers` | — | ✅ | ✅ | ✅ |
 | `GET /questions/:id`、`GET /papers/:id` | — | ✅ | ✅ | ✅ |
 | `POST/PATCH/PUT/DELETE` questions | — | — | ✅ | ✅ |
 | `POST/PATCH/PUT/DELETE` papers | — | — | ✅ | ✅ |

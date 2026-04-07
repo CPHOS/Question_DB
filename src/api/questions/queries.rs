@@ -257,6 +257,25 @@ pub(crate) async fn load_question_tags(
         })
 }
 
+pub(crate) async fn list_active_question_tags(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
+    query(
+        "
+        SELECT DISTINCT qt.tag
+        FROM question_tags qt
+        JOIN questions q ON q.question_id = qt.question_id
+        WHERE q.deleted_at IS NULL
+        ORDER BY qt.tag
+        ",
+    )
+    .fetch_all(pool)
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|row| row.get::<String, _>("tag"))
+            .collect()
+    })
+}
+
 pub(crate) async fn load_question_difficulties(
     pool: &PgPool,
     question_id: &str,

@@ -9,12 +9,12 @@ use super::{
     imports::{import_question_zip, replace_question_zip, MAX_UPLOAD_BYTES},
     models::{
         CreateQuestionRequest, QuestionDeleteResponse, QuestionDetail, QuestionDifficulty,
-        QuestionFileReplaceResponse, QuestionImportResponse, QuestionSummary, QuestionsParams,
-        UpdateQuestionMetadataRequest,
+        QuestionFileReplaceResponse, QuestionImportResponse, QuestionSummary, QuestionTagsResponse,
+        QuestionsParams, UpdateQuestionMetadataRequest,
     },
     queries::{
-        execute_questions_query, load_question_difficulties_batch, load_question_tags_batch,
-        map_question_summary, validate_question_filters,
+        execute_questions_query, list_active_question_tags, load_question_difficulties_batch,
+        load_question_tags_batch, map_question_summary, validate_question_filters,
     },
 };
 use crate::api::{
@@ -74,6 +74,16 @@ pub(crate) async fn list_questions(
         limit,
         offset,
     }))
+}
+
+pub(crate) async fn list_question_tags(
+    State(state): State<AppState>,
+) -> ApiResult<QuestionTagsResponse> {
+    let tags = list_active_question_tags(&state.pool)
+        .await
+        .context("list question tags failed")
+        .map_err(ApiError::from)?;
+    Ok(Json(QuestionTagsResponse { tags }))
 }
 
 pub(crate) async fn get_question_detail(

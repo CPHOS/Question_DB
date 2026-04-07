@@ -79,6 +79,18 @@
 }
 ```
 
+### `QuestionTagsResponse`
+
+```json
+{
+  "tags": ["kinematics", "lenses", "mechanics", "optics"]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `tags` | string[] | 所有未软删除题目的去重标签列表，按字典序升序返回 |
+
 ---
 
 ## Endpoints
@@ -107,6 +119,17 @@
 | `offset` | int | `0` | 偏移量 |
 
 **成功响应** `200`：分页包裹，`items` 为 `QuestionSummary[]`。
+
+---
+
+### `GET /questions/tags`
+
+返回所有未软删除题目当前使用中的标签列表，适合前端做自动补全或候选选择。
+
+- **认证**：`viewer` 及以上
+- **说明**：只统计未软删除题目；自动去重；按字典序升序返回
+
+**成功响应** `200`：`QuestionTagsResponse` 对象。
 
 ---
 
