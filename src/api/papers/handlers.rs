@@ -3,16 +3,19 @@ use std::collections::HashSet;
 use anyhow::Context;
 use axum::{
     extract::{Multipart, Path as AxumPath, Query, State},
+    response::Response,
     Extension, Json,
 };
 use sqlx::{query, Row};
 use uuid::Uuid;
 
 use super::{
+    bundles::build_paper_bundle_response,
     imports::{import_paper_zip, replace_paper_zip, MAX_UPLOAD_BYTES},
     models::{
-        CreatePaperRequest, PaperDeleteResponse, PaperDetail, PaperFileReplaceResponse,
-        PaperImportResponse, PaperSummary, PapersParams, UpdatePaperRequest,
+        CreatePaperRequest, PaperBundleRequest, PaperDeleteResponse, PaperDetail,
+        PaperFileReplaceResponse, PaperImportResponse, PaperSummary, PapersParams,
+        UpdatePaperRequest,
     },
     queries::{
         count_papers, ensure_paper_questions_valid, execute_papers_query, map_paper_summary,
@@ -126,6 +129,18 @@ pub(crate) async fn create_paper(
             .await
             .map_err(ApiError::from)?,
     ))
+}
+
+pub(crate) async fn download_papers_bundle(
+    State(state): State<AppState>,
+    Json(request): Json<PaperBundleRequest>,
+) -> Result<Response, ApiError> {
+    let paper_ids = request
+        .normalize()
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    build_paper_bundle_response(&state.pool, &paper_ids)
+        .await
+        .map_err(ApiError::from)
 }
 
 pub(crate) async fn replace_paper_file(

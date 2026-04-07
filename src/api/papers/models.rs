@@ -49,6 +49,11 @@ pub(crate) struct PapersParams {
     pub(crate) offset: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct PaperBundleRequest {
+    pub(crate) paper_ids: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct PaperImportResponse {
     pub(crate) paper_id: String,
@@ -163,6 +168,12 @@ impl PapersParams {
     }
 }
 
+impl PaperBundleRequest {
+    pub(crate) fn normalize(self) -> Result<Vec<String>> {
+        normalize_bundle_ids("paper_ids", self.paper_ids)
+    }
+}
+
 fn normalize_required_description(field: &str, value: &str) -> Result<String> {
     normalize_bundle_description(field, value)
 }
@@ -212,6 +223,28 @@ fn normalize_question_ids(question_ids: Vec<String>) -> Result<Vec<String>> {
             bail!("duplicate question_id in question_ids: {candidate}");
         }
         normalized.push(candidate);
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_bundle_ids(field_name: &str, ids: Vec<String>) -> Result<Vec<String>> {
+    if ids.is_empty() {
+        bail!("{field_name} must not be empty");
+    }
+
+    let mut normalized = Vec::with_capacity(ids.len());
+    let mut seen = HashSet::new();
+    for raw_id in ids {
+        let id = raw_id.trim().to_string();
+        if id.is_empty() {
+            bail!("{field_name} must not contain empty values");
+        }
+        uuid::Uuid::parse_str(&id).map_err(|_| anyhow!("invalid {field_name} entry: {id}"))?;
+        if !seen.insert(id.clone()) {
+            bail!("duplicate {field_name} entry: {id}");
+        }
+        normalized.push(id);
     }
 
     Ok(normalized)

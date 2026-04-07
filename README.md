@@ -19,19 +19,20 @@ src/
 │   ├── mod.rs
 │   ├── questions/
 │   │   ├── API.md
+│   │   ├── bundles.rs
 │   │   ├── handlers.rs
 │   │   ├── imports.rs
 │   │   ├── models.rs
 │   │   └── queries.rs
 │   ├── papers/
 │   │   ├── API.md
+│   │   ├── bundles.rs
 │   │   ├── handlers.rs
 │   │   ├── imports.rs
 │   │   ├── models.rs
 │   │   └── queries.rs
 │   ├── ops/
 │   │   ├── API.md
-│   │   ├── bundles.rs
 │   │   ├── exports.rs
 │   │   ├── handlers.rs
 │   │   ├── models.rs
@@ -251,7 +252,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 返回一个 zip，根目录附带 `manifest.json`，并按 `paperDescription_uuid前缀/questionDescription_uuid前缀/` 目录展开题目文件。每个试卷目录还会附带一个重命名后的 `append.zip`，内容就是创建试卷时上传的那个 zip。
 
-### 查询与运维
+### 查询、打包与运维
 
 - `GET /papers`
 - `GET /papers/{paper_id}`
@@ -288,6 +289,8 @@ curl -X POST http://127.0.0.1:8080/papers \
 说明：
 
 - 普通 `/questions` 和 `/papers` 接口默认只返回未软删除记录
+- `POST /questions/bundles` 和 `POST /papers/bundles` 需要 `viewer` 及以上角色
+- `POST /exports/run` 和 `POST /quality-checks/run` 仍然只允许 `editor` 及以上角色
 - 管理员查询、恢复和垃圾回收见 [Admin API](./src/api/admin/API.md)
 - `POST /exports/run` 只导出未软删除题目
 - `POST /quality-checks/run` 只检查未软删除题目和试卷

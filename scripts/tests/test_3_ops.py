@@ -1,8 +1,8 @@
-"""Export, quality-check, and bundle endpoint tests (positive + negative)."""
+"""Export, quality-check, and bundle permission tests."""
 
 from __future__ import annotations
 
-from .config import EXPORT_PATH, QUALITY_PATH
+from .config import DOWNLOADS_DIR, EXPORT_PATH, QUALITY_PATH
 from .session import parse_json
 
 
@@ -51,16 +51,35 @@ def test_quality_check_path_traversal(api):
     )
 
 
-def test_question_bundle_validation(api):
-    """Empty and malformed IDs."""
-    api.post_json("/questions/bundles", {"question_ids": []}, expect=400)
-    api.post_json(
-        "/questions/bundles", {"question_ids": ["not-a-uuid"]}, expect=400,
-    )
+def test_viewer_can_download_bundles_but_not_ops(api, state):
+    """Viewer can download bundles, but exports and quality checks stay editor-only."""
+    _, body, _ = api.post_json("/admin/users", {
+        "username": "bundle_viewer",
+        "password": "viewer123",
+        "role": "viewer",
+    })
+    viewer = parse_json(body)
 
+    saved = api._access_token
+    try:
+        api.login("bundle_viewer", "viewer123")
 
-def test_paper_bundle_validation(api):
-    api.post_json("/papers/bundles", {"paper_ids": []}, expect=400)
-    api.post_json(
-        "/papers/bundles", {"paper_ids": ["not-a-uuid"]}, expect=400,
-    )
+        q_manifest, _ = api.download_zip(
+            "/questions/bundles",
+            {"question_ids": [state.q_ids[0]]},
+            DOWNLOADS_DIR / "viewer_questions_bundle.zip",
+        )
+        assert q_manifest["kind"] == "question_bundle"
+
+        p_manifest, _ = api.download_zip(
+            "/papers/bundles",
+            {"paper_ids": [state.all_paper_ids[0]]},
+            DOWNLOADS_DIR / "viewer_papers_bundle.zip",
+        )
+        assert p_manifest["kind"] == "paper_bundle"
+
+        api.post_json("/exports/run", {"format": "jsonl"}, expect=403)
+        api.post_json("/quality-checks/run", {}, expect=403)
+    finally:
+        api.set_token(saved)
+        api.delete(f"/admin/users/{viewer['user_id']}")

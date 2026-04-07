@@ -1,16 +1,12 @@
 use std::{fs, path::Path};
 
 use anyhow::Context;
-use axum::{extract::State, response::Response, Json};
+use axum::{extract::State, Json};
 use serde_json::json;
 
 use super::{
-    bundles::{build_paper_bundle_response, build_question_bundle_response},
     exports::{default_export_path, ensure_parent_dir, export_csv, export_jsonl, exported_path},
-    models::{
-        ExportFormat, ExportRequest, ExportResponse, PaperBundleRequest, QualityCheckRequest,
-        QuestionBundleRequest,
-    },
+    models::{ExportFormat, ExportRequest, ExportResponse, QualityCheckRequest},
     quality::build_quality_report,
 };
 use crate::api::{
@@ -20,30 +16,6 @@ use crate::api::{
     },
     AppState,
 };
-
-pub(crate) async fn download_questions_bundle(
-    State(state): State<AppState>,
-    Json(request): Json<QuestionBundleRequest>,
-) -> Result<Response, ApiError> {
-    let question_ids = request
-        .normalize()
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    build_question_bundle_response(&state.pool, &question_ids)
-        .await
-        .map_err(ApiError::from)
-}
-
-pub(crate) async fn download_papers_bundle(
-    State(state): State<AppState>,
-    Json(request): Json<PaperBundleRequest>,
-) -> Result<Response, ApiError> {
-    let paper_ids = request
-        .normalize()
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    build_paper_bundle_response(&state.pool, &paper_ids)
-        .await
-        .map_err(ApiError::from)
-}
 
 pub(crate) async fn run_export(
     State(state): State<AppState>,

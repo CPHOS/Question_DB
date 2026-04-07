@@ -1,3 +1,4 @@
+pub(crate) mod bundles;
 pub(crate) mod handlers;
 pub(crate) mod imports;
 pub(crate) mod models;

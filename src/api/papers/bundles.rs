@@ -1,54 +1,30 @@
-use std::{
-    fs::File,
-    io::Write,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::fs::File;
 
-use anyhow::{anyhow, Context, Result};
-use axum::{
-    body::Body,
-    http::{header, HeaderValue, Response, StatusCode},
-};
+use anyhow::{Context, Result};
 use serde::Serialize;
 use sqlx::{query, PgPool, Row};
-use tokio::fs;
-use tokio_util::io::ReaderStream;
-use uuid::Uuid;
-use zip::{write::SimpleFileOptions, ZipWriter};
+use zip::ZipWriter;
 
+use super::{models::PaperDetail, queries::map_paper_detail};
 use crate::api::{
     ops::paper_render::{
         render_paper_bundle, PaperTemplateKind, RenderPaperInput, RenderQuestionAssetInput,
         RenderQuestionInput,
     },
-    papers::{models::PaperDetail, queries::map_paper_detail},
     questions::{
-        models::{QuestionAssetRef, QuestionDetail, QuestionSummary},
-        queries::load_question_files,
+        bundles::{load_question_bundle_data, question_detail_to_summary, QuestionBundleData},
+        models::QuestionDetail,
     },
     shared::{
+        bundles::{
+            finish_zip_response, temp_zip_path, timestamp_unix, write_bundle_file, write_manifest,
+            BundleFileEntry,
+        },
         db::fetch_object_bytes,
-        details::{load_question_detail, DetailVisibility},
+        error::NotFoundError,
         utils::bundle_directory_name,
     },
 };
-
-#[derive(Debug, Serialize)]
-struct QuestionBundleManifest {
-    kind: &'static str,
-    generated_at_unix: u64,
-    question_count: usize,
-    questions: Vec<QuestionBundleManifestItem>,
-}
-
-#[derive(Debug, Serialize)]
-struct QuestionBundleManifestItem {
-    question_id: String,
-    directory: String,
-    metadata: QuestionDetail,
-    files: Vec<BundleFileEntry>,
-}
 
 #[derive(Debug, Serialize)]
 struct PaperBundleManifest {
@@ -80,24 +56,6 @@ struct PaperBundleQuestionManifestItem {
     metadata: QuestionDetail,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct BundleFileEntry {
-    zip_path: String,
-    original_path: String,
-    file_kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source_question_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    object_id: Option<String>,
-    mime_type: Option<String>,
-}
-
-#[derive(Debug)]
-struct QuestionBundleData {
-    metadata: QuestionDetail,
-    files: Vec<QuestionAssetRef>,
-}
-
 #[derive(Debug)]
 struct PaperBundleData {
     metadata: PaperDetail,
@@ -112,48 +70,10 @@ struct PaperAppendixData {
     mime_type: Option<String>,
 }
 
-pub(crate) async fn build_question_bundle_response(
-    pool: &PgPool,
-    question_ids: &[String],
-) -> Result<Response<Body>> {
-    let bundle_name = format!("questions_bundle_{}.zip", timestamp_unix());
-    let zip_path = temp_zip_path("questions");
-    let file = File::create(&zip_path).with_context(|| {
-        format!(
-            "create question bundle zip failed: {}",
-            zip_path.to_string_lossy()
-        )
-    })?;
-    let mut writer = ZipWriter::new(file);
-    let mut manifest_items = Vec::with_capacity(question_ids.len());
-
-    for question_id in question_ids {
-        let bundle = load_question_bundle_data(pool, question_id).await?;
-        let directory = bundle_directory_name(&bundle.metadata.description, question_id);
-        let manifest_files =
-            write_question_bundle_files(pool, &mut writer, &bundle.files, &directory).await?;
-        manifest_items.push(QuestionBundleManifestItem {
-            question_id: question_id.clone(),
-            directory,
-            metadata: bundle.metadata,
-            files: manifest_files,
-        });
-    }
-
-    let manifest = QuestionBundleManifest {
-        kind: "question_bundle",
-        generated_at_unix: timestamp_unix(),
-        question_count: manifest_items.len(),
-        questions: manifest_items,
-    };
-    write_manifest(&mut writer, &manifest)?;
-    finish_zip_response(writer, zip_path, &bundle_name).await
-}
-
 pub(crate) async fn build_paper_bundle_response(
     pool: &PgPool,
     paper_ids: &[String],
-) -> Result<Response<Body>> {
+) -> Result<axum::response::Response> {
     let bundle_name = format!("papers_bundle_{}.zip", timestamp_unix());
     let zip_path = temp_zip_path("papers");
     let file = File::create(&zip_path).with_context(|| {
@@ -239,32 +159,6 @@ pub(crate) async fn build_paper_bundle_response(
     finish_zip_response(writer, zip_path, &bundle_name).await
 }
 
-async fn write_question_bundle_files(
-    pool: &PgPool,
-    writer: &mut ZipWriter<File>,
-    files: &[QuestionAssetRef],
-    directory: &str,
-) -> Result<Vec<BundleFileEntry>> {
-    let mut manifest_entries = Vec::with_capacity(files.len());
-
-    for file in files {
-        let zip_path = format!("{directory}/{}", file.path);
-        let bytes = fetch_object_bytes(pool, &file.object_id).await?;
-        write_bundle_file(writer, &zip_path, &bytes)?;
-
-        manifest_entries.push(BundleFileEntry {
-            zip_path,
-            original_path: file.path.clone(),
-            file_kind: file.file_kind.clone(),
-            source_question_id: None,
-            object_id: Some(file.object_id.clone()),
-            mime_type: file.mime_type.clone(),
-        });
-    }
-
-    Ok(manifest_entries)
-}
-
 async fn write_paper_appendix_file(
     pool: &PgPool,
     writer: &mut ZipWriter<File>,
@@ -289,86 +183,6 @@ async fn write_paper_appendix_file(
     }))
 }
 
-fn write_bundle_file(writer: &mut ZipWriter<File>, zip_path: &str, bytes: &[u8]) -> Result<()> {
-    writer
-        .start_file(zip_path, SimpleFileOptions::default())
-        .context("start bundle file entry failed")?;
-    writer
-        .write_all(bytes)
-        .with_context(|| format!("write bundle file failed: {zip_path}"))?;
-    Ok(())
-}
-
-fn write_manifest<T: Serialize>(writer: &mut ZipWriter<File>, manifest: &T) -> Result<()> {
-    writer
-        .start_file("manifest.json", SimpleFileOptions::default())
-        .context("start manifest.json failed")?;
-    let bytes = serde_json::to_vec_pretty(manifest).context("serialize manifest.json failed")?;
-    writer
-        .write_all(&bytes)
-        .context("write manifest.json failed")?;
-    Ok(())
-}
-
-async fn finish_zip_response(
-    writer: ZipWriter<File>,
-    zip_path: PathBuf,
-    bundle_name: &str,
-) -> Result<Response<Body>> {
-    let file = writer.finish().context("finish zip archive failed")?;
-    let size = file
-        .metadata()
-        .context("read zip metadata failed")?
-        .len()
-        .to_string();
-    drop(file);
-
-    let std_file = File::open(&zip_path)
-        .with_context(|| format!("open finished zip failed: {}", zip_path.to_string_lossy()))?;
-    std::fs::remove_file(&zip_path).ok();
-    let stream = ReaderStream::new(fs::File::from_std(std_file));
-    let body = Body::from_stream(stream);
-
-    let content_type = HeaderValue::from_static("application/zip");
-    let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{bundle_name}\""))
-        .context("build content-disposition header failed")?;
-    let content_length =
-        HeaderValue::from_str(&size).context("build content-length header failed")?;
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, content_type)
-        .header(header::CONTENT_DISPOSITION, disposition)
-        .header(header::CONTENT_LENGTH, content_length)
-        .body(body)
-        .context("build zip response failed")
-}
-
-async fn load_question_bundle_data(pool: &PgPool, question_id: &str) -> Result<QuestionBundleData> {
-    let loaded = load_question_detail(
-        pool,
-        question_id,
-        DetailVisibility::ActiveOnly,
-        DetailVisibility::ActiveOnly,
-    )
-    .await?;
-
-    let all_files = load_question_files(pool, question_id, "tex")
-        .await
-        .with_context(|| format!("load question tex files for bundle failed: {question_id}"))?;
-    let mut files = all_files;
-    files.extend(
-        load_question_files(pool, question_id, "asset")
-            .await
-            .with_context(|| format!("load question assets for bundle failed: {question_id}"))?,
-    );
-
-    Ok(QuestionBundleData {
-        metadata: loaded.detail,
-        files,
-    })
-}
-
 async fn load_paper_bundle_data(pool: &PgPool, paper_id: &str) -> Result<PaperBundleData> {
     let paper_row = query(
         r#"
@@ -386,7 +200,7 @@ async fn load_paper_bundle_data(pool: &PgPool, paper_id: &str) -> Result<PaperBu
     .fetch_optional(pool)
     .await
     .with_context(|| format!("load paper detail failed: {paper_id}"))?
-    .ok_or_else(|| anyhow!("paper not found: {paper_id}"))?;
+    .ok_or_else(|| NotFoundError(format!("paper not found: {paper_id}")))?;
 
     let question_rows = query(
         r#"
@@ -463,7 +277,6 @@ async fn build_render_paper_input(
         });
     }
 
-    // Collect authors from questions in sort order, deduplicate preserving order.
     let mut authors = Vec::new();
     let mut seen_authors = std::collections::HashSet::new();
     for question in &bundle.questions {
@@ -473,7 +286,6 @@ async fn build_render_paper_input(
         }
     }
 
-    // Collect reviewers from all questions, deduplicate preserving order.
     let mut reviewers = Vec::new();
     let mut seen_reviewers = std::collections::HashSet::new();
     for question in &bundle.questions {
@@ -498,13 +310,13 @@ async fn build_render_paper_input(
 fn determine_paper_template_kind(questions: &[QuestionBundleData]) -> Result<PaperTemplateKind> {
     let first_question = questions
         .first()
-        .ok_or_else(|| anyhow!("paper does not contain any questions"))?;
+        .ok_or_else(|| anyhow::anyhow!("paper does not contain any questions"))?;
     let expected_category = first_question.metadata.category.as_str();
     let template_kind = match expected_category {
         "T" => PaperTemplateKind::Theory,
         "E" => PaperTemplateKind::Experiment,
         other => {
-            return Err(anyhow!(
+            return Err(anyhow::anyhow!(
                 "paper questions must all be category T or E before rendering, found {other}"
             ));
         }
@@ -512,7 +324,7 @@ fn determine_paper_template_kind(questions: &[QuestionBundleData]) -> Result<Pap
 
     for question in questions.iter().skip(1) {
         if question.metadata.category != expected_category {
-            return Err(anyhow!(
+            return Err(anyhow::anyhow!(
                 "paper questions must share one category before rendering, found {} and {}",
                 expected_category,
                 question.metadata.category
@@ -521,39 +333,4 @@ fn determine_paper_template_kind(questions: &[QuestionBundleData]) -> Result<Pap
     }
 
     Ok(template_kind)
-}
-
-fn question_detail_to_summary(detail: &QuestionDetail) -> QuestionSummary {
-    use crate::api::questions::models::QuestionSourceRef;
-    QuestionSummary {
-        question_id: detail.question_id.clone(),
-        source: QuestionSourceRef {
-            tex: detail.source.tex.clone(),
-        },
-        category: detail.category.clone(),
-        status: detail.status.clone(),
-        description: detail.description.clone(),
-        score: detail.score,
-        author: detail.author.clone(),
-        reviewers: detail.reviewers.clone(),
-        tags: detail.tags.clone(),
-        difficulty: detail.difficulty.clone(),
-        created_at: detail.created_at.clone(),
-        updated_at: detail.updated_at.clone(),
-    }
-}
-
-fn temp_zip_path(prefix: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "qb_{prefix}_bundle_{}_{}.zip",
-        timestamp_unix(),
-        Uuid::new_v4()
-    ))
-}
-
-fn timestamp_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or_default()
 }

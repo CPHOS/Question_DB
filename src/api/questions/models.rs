@@ -101,6 +101,11 @@ pub(crate) struct QuestionsParams {
     pub(crate) offset: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct QuestionBundleRequest {
+    pub(crate) question_ids: Vec<String>,
+}
+
 #[derive(Debug)]
 pub(crate) struct CreateQuestionRequest {
     pub(crate) description: String,
@@ -283,6 +288,12 @@ impl UpdateQuestionMetadataRequest {
     }
 }
 
+impl QuestionBundleRequest {
+    pub(crate) fn normalize(self) -> Result<Vec<String>> {
+        normalize_bundle_ids("question_ids", self.question_ids)
+    }
+}
+
 impl QuestionDifficulty {
     pub(crate) fn normalize(self) -> Result<NormalizedQuestionDifficulty> {
         normalize_difficulty_entries(self.entries)
@@ -303,6 +314,29 @@ fn normalize_status(value: &str) -> Result<String> {
 
 fn normalize_required_plaintext(field: &str, value: Option<String>) -> Result<String> {
     normalize_optional_bundle_description(field, value)
+}
+
+fn normalize_bundle_ids(field_name: &str, ids: Vec<String>) -> Result<Vec<String>> {
+    if ids.is_empty() {
+        return Err(anyhow!("{field_name} must not be empty"));
+    }
+
+    let mut normalized = Vec::with_capacity(ids.len());
+    let mut seen = HashSet::new();
+
+    for raw_id in ids {
+        let id = raw_id.trim().to_string();
+        if id.is_empty() {
+            bail!("{field_name} must not contain empty values");
+        }
+        uuid::Uuid::parse_str(&id).map_err(|_| anyhow!("invalid {field_name} entry: {id}"))?;
+        if !seen.insert(id.clone()) {
+            bail!("duplicate {field_name} entry: {id}");
+        }
+        normalized.push(id);
+    }
+
+    Ok(normalized)
 }
 
 fn normalize_required_plaintext_value(field: &str, value: &str) -> Result<String> {

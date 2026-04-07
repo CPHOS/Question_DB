@@ -8,7 +8,7 @@
 - **Refresh Token**：不透明 UUID 字符串，有效期 **7 天**，一次性消费（轮换）
 - **传递方式**：`Authorization: Bearer <access_token>`
 - **密码存储**：Argon2id
-- **角色**：`viewer`（只读）、`editor`（读写+ops）、`admin`（全部权限+用户管理）
+- **角色**：`viewer`（只读 + bundle 下载）、`editor`（读写 + ops）、`admin`（全部权限+用户管理）
 
 ## 权限矩阵
 
@@ -22,9 +22,10 @@
 | `POST /auth/logout` | — | ✅ | ✅ | ✅ |
 | `GET /questions`、`GET /questions/tags`、`GET /papers` | — | ✅ | ✅ | ✅ |
 | `GET /questions/:id`、`GET /papers/:id` | — | ✅ | ✅ | ✅ |
+| `POST /questions/bundles`、`POST /papers/bundles` | — | ✅ | ✅ | ✅ |
 | `POST/PATCH/PUT/DELETE` questions | — | — | ✅ | ✅ |
 | `POST/PATCH/PUT/DELETE` papers | — | — | ✅ | ✅ |
-| ops (bundles / exports / quality) | — | — | ✅ | ✅ |
+| ops (exports / quality) | — | — | ✅ | ✅ |
 | `/admin/*` | — | — | — | ✅ |
 
 ## 环境变量

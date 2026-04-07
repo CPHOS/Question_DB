@@ -68,17 +68,25 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
             "/questions/:question_id",
             axum::routing::get(questions::handlers::get_question_detail),
         )
+        .route(
+            "/questions/bundles",
+            axum::routing::post(questions::handlers::download_questions_bundle),
+        )
         .route("/papers", axum::routing::get(papers::handlers::list_papers))
         .route(
             "/papers/:paper_id",
             axum::routing::get(papers::handlers::get_paper_detail),
+        )
+        .route(
+            "/papers/bundles",
+            axum::routing::post(papers::handlers::download_papers_bundle),
         )
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth::middleware::require_auth,
         ));
 
-    // Editor-level routes: create, update, delete, ops
+    // Editor-level routes: create, update, delete, and restricted ops
     let editor_routes = Router::new()
         .route(
             "/questions",

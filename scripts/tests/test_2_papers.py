@@ -347,3 +347,11 @@ def test_experiment_papers(api, state):
         state.re_q_by_slug,
         state.re_fixtures,
     )
+
+
+def test_paper_bundle_validation(api):
+    """Empty and malformed IDs are rejected before bundling."""
+    api.post_json("/papers/bundles", {"paper_ids": []}, expect=400)
+    api.post_json(
+        "/papers/bundles", {"paper_ids": ["not-a-uuid"]}, expect=400,
+    )

@@ -1,16 +1,18 @@
 use anyhow::Context;
 use axum::{
     extract::{Multipart, Path as AxumPath, Query, State},
+    response::Response,
     Extension, Json,
 };
 use sqlx::{query, Row};
 
 use super::{
+    bundles::build_question_bundle_response,
     imports::{import_question_zip, replace_question_zip, MAX_UPLOAD_BYTES},
     models::{
-        CreateQuestionRequest, QuestionDeleteResponse, QuestionDetail, QuestionDifficulty,
-        QuestionFileReplaceResponse, QuestionImportResponse, QuestionSummary, QuestionTagsResponse,
-        QuestionsParams, UpdateQuestionMetadataRequest,
+        CreateQuestionRequest, QuestionBundleRequest, QuestionDeleteResponse, QuestionDetail,
+        QuestionDifficulty, QuestionFileReplaceResponse, QuestionImportResponse, QuestionSummary,
+        QuestionTagsResponse, QuestionsParams, UpdateQuestionMetadataRequest,
     },
     queries::{
         execute_questions_query, list_active_question_tags, load_question_difficulties_batch,
@@ -92,6 +94,18 @@ pub(crate) async fn get_question_detail(
 ) -> ApiResult<QuestionDetail> {
     parse_uuid_param(&question_id, "question_id")?;
     Ok(Json(fetch_question_detail(&state, &question_id).await?))
+}
+
+pub(crate) async fn download_questions_bundle(
+    State(state): State<AppState>,
+    Json(request): Json<QuestionBundleRequest>,
+) -> Result<Response, ApiError> {
+    let question_ids = request
+        .normalize()
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    build_question_bundle_response(&state.pool, &question_ids)
+        .await
+        .map_err(ApiError::from)
 }
 
 pub(crate) async fn create_question(

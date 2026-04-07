@@ -297,6 +297,14 @@ def test_question_bundle(api, state):
     validate_question_bundle(manifest, names, state.q_ids)
 
 
+def test_question_bundle_validation(api):
+    """Empty and malformed IDs are rejected before bundling."""
+    api.post_json("/questions/bundles", {"question_ids": []}, expect=400)
+    api.post_json(
+        "/questions/bundles", {"question_ids": ["not-a-uuid"]}, expect=400,
+    )
+
+
 def test_question_file_replacement(api, state):
     mid = state.q_by_slug["mechanics"]
     original = parse_json(api.get(f"/questions/{mid}")[1])

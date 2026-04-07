@@ -2,8 +2,8 @@
 
 > 试卷的增删改查、附录文件替换和批量打包接口。
 
-- **`GET` 操作**：需要 `viewer` 及以上角色
-- **`POST / PATCH / DELETE / PUT` 操作**：需要 `editor` 及以上角色
+- **`GET` 操作和 `POST /papers/bundles`**：需要 `viewer` 及以上角色
+- **其余写操作（`POST / PATCH / DELETE / PUT`）**：需要 `editor` 及以上角色
 - 所有请求需携带 `Authorization: Bearer <access_token>` 头
 
 ---
@@ -258,7 +258,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 批量打包下载试卷（含自动排版的 main.tex）。
 
-- **认证**：`editor` 及以上
+- **认证**：`viewer` 及以上
 - **Content-Type**：`application/json`
 
 **请求体**：

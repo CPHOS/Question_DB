@@ -74,8 +74,8 @@
 
 | 角色 | 说明 |
 |---|---|
-| `viewer` | 只读（查询题目、试卷） |
-| `editor` | 读写 + ops 操作 |
+| `viewer` | 只读 + bundle 下载（查询题目、试卷、下载 bundles） |
+| `editor` | 读写 + ops 操作（导出 / 质检） |
 | `admin` | 全部权限 + 用户管理 + 垃圾回收 |
 
 ### 权限矩阵
@@ -90,9 +90,10 @@
 | `POST /auth/logout` | — | ✅ | ✅ | ✅ |
 | `GET /questions`、`GET /questions/tags`、`GET /papers` | — | ✅ | ✅ | ✅ |
 | `GET /questions/:id`、`GET /papers/:id` | — | ✅ | ✅ | ✅ |
+| `POST /questions/bundles`、`POST /papers/bundles` | — | ✅ | ✅ | ✅ |
 | `POST/PATCH/PUT/DELETE` questions | — | — | ✅ | ✅ |
 | `POST/PATCH/PUT/DELETE` papers | — | — | ✅ | ✅ |
-| ops (bundles / exports / quality) | — | — | ✅ | ✅ |
+| ops (exports / quality) | — | — | ✅ | ✅ |
 | `/admin/*` | — | — | — | ✅ |
 
 ### 初始账号
@@ -633,7 +634,7 @@ curl -X POST http://127.0.0.1:8080/questions \
 
 批量打包下载题目原始文件。
 
-- **认证**：`editor` 及以上
+- **认证**：`viewer` 及以上
 - **Content-Type**：`application/json`
 
 **请求体**：
@@ -926,7 +927,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 批量打包下载试卷（含自动排版的 main.tex）。
 
-- **认证**：`editor` 及以上
+- **认证**：`viewer` 及以上
 - **Content-Type**：`application/json`
 
 **请求体**：
