@@ -215,6 +215,19 @@ def _run_paper_flow(
     # ── Detail ───────────────────────────────────────────────
     detail = parse_json(api.get(f"/papers/{paper_a_id}")[1])
     assert [q["question_id"] for q in detail["questions"]] == first_n
+    # Verify each question carries full metadata (QuestionSummary shape)
+    for q in detail["questions"]:
+        assert "description" in q
+        assert q["category"] == config.category
+        assert q["status"] in ("reviewed", "used")
+        assert isinstance(q["tags"], list)
+        assert isinstance(q["difficulty"], dict)
+        assert "author" in q
+        assert isinstance(q["reviewers"], list)
+        assert "created_at" in q
+        assert "updated_at" in q
+        # score may be null
+        assert "score" in q
 
     # ── Patch ────────────────────────────────────────────────
     _, body, _ = api.patch_json(

@@ -16,6 +16,7 @@ use crate::api::shared::{
 pub(crate) struct UserRow {
     pub(crate) user_id: String,
     pub(crate) username: String,
+    #[allow(dead_code)]
     pub(crate) display_name: String,
     pub(crate) password_hash: String,
     pub(crate) role: String,

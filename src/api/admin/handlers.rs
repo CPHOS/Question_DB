@@ -19,8 +19,8 @@ use super::{
 use crate::api::{
     auth::{
         models::{
-            AdminUsersParams, CreateUserRequest, CurrentUser, MessageResponse, Role,
-            UpdateUserRequest, UserProfile,
+            AdminUsersParams, CreateUserRequest, CurrentUser, MessageResponse,
+            ResetPasswordRequest, Role, UpdateUserRequest, UserProfile,
         },
         password::hash_password,
         queries as auth_queries,
@@ -248,5 +248,40 @@ pub(crate) async fn delete_user(
 
     Ok(Json(MessageResponse {
         message: "user deactivated",
+    }))
+}
+
+pub(crate) async fn reset_password(
+    AxumPath(user_id): AxumPath<String>,
+    State(state): State<AppState>,
+    Json(req): Json<ResetPasswordRequest>,
+) -> ApiResult<MessageResponse> {
+    parse_uuid_param(&user_id, "user_id")?;
+
+    if req.new_password.len() < 6 {
+        return Err(ApiError::bad_request(
+            "password must be at least 6 characters",
+        ));
+    }
+
+    // Verify user exists
+    auth_queries::find_user_by_id(&state.pool, &user_id)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::not_found("user not found"))?;
+
+    let new_hash =
+        hash_password(&req.new_password).map_err(|_| ApiError::internal("password hash error"))?;
+    auth_queries::update_password(&state.pool, &user_id, &new_hash)
+        .await
+        .map_err(ApiError::from)?;
+
+    // Revoke all existing refresh tokens so the user must re-login
+    auth_queries::revoke_all_refresh_tokens(&state.pool, &user_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(MessageResponse {
+        message: "password reset",
     }))
 }

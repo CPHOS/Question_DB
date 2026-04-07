@@ -1,136 +1,141 @@
 # Admin API
 
-管理员接口用于查看软删除数据、恢复软删除记录、执行最终垃圾回收，以及用户管理。
+> 管理员接口：查看/恢复软删除数据、垃圾回收、用户管理。
 
-说明：
-
-- 所有 `/admin/*` 接口需要 `admin` 角色的 JWT access token
-- 通过 `Authorization: Bearer <token>` 头传递认证信息
+- 所有 `/admin/*` 接口需要 `admin` 角色
+- 所有请求需携带 `Authorization: Bearer <access_token>` 头
 - `deleted_by` 返回执行删除操作的用户 UUID（鉴权上线前创建的记录该字段为 `null`）
 
-## Endpoints
+---
+
+## 题目管理
 
 ### `GET /admin/questions`
 
-按条件分页查询题目，支持查看活跃、已删除或全部记录。
+管理员视角查询题目，可查看软删除记录。
 
-支持的 query 参数：
+- **认证**：`admin`
 
-- `state`
-  - `active` | `deleted` | `all`
-  - 默认 `all`
-- `paper_id`
-- `category`
-- `tag`
-- `score_min`
-- `score_max`
-- `difficulty_tag`
-- `difficulty_min`
-- `difficulty_max`
-- `q`
-- `limit`（默认 20，最大 100）
-- `offset`（默认 0）
+**Query 参数**：
 
-响应格式（分页包裹）：
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `state` | `"active"` \| `"deleted"` \| `"all"` | `"all"` | 记录状态过滤 |
+| 其他参数 | — | — | 同 `GET /questions` 的全部过滤参数 |
 
-```json
-{
-  "items": [ ... ],
-  "total": 100,
-  "limit": 20,
-  "offset": 0
-}
-```
+**成功响应** `200`：分页包裹，`items` 为 `AdminQuestionSummary[]`。
 
-`items` 中每个元素在普通题目摘要字段之外追加：
+`AdminQuestionSummary` = `QuestionSummary` + 以下字段：
 
-- `deleted_at`
-- `deleted_by`
-- `is_deleted`
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `deleted_at` | string \| null | 软删除时间 |
+| `deleted_by` | string(UUID) \| null | 执行删除的用户 ID |
+| `is_deleted` | boolean | 是否已软删除 |
 
-### `GET /admin/questions/{question_id}`
+---
 
-返回单个题目的完整详情，不区分是否已软删除。
+### `GET /admin/questions/:question_id`
 
-返回值会在普通题目详情字段之外追加：
+管理员视角获取题目详情（含软删除记录）。
 
-- `deleted_at`
-- `deleted_by`
-- `is_deleted`
+- **认证**：`admin`
+- **路径参数**：`question_id` — UUID
 
-### `POST /admin/questions/{question_id}/restore`
+**成功响应** `200`：`AdminQuestionDetail` = `QuestionDetail` + `deleted_at` / `deleted_by` / `is_deleted`。
 
-恢复一个已软删除的题目。
+---
 
-- 如果题目不存在，返回 `404`
-- 如果题目未被软删除，返回 `409`
+### `POST /admin/questions/:question_id/restore`
 
-成功时返回恢复后的管理员题目详情。
+恢复已软删除的题目。
+
+- **认证**：`admin`
+- **路径参数**：`question_id` — UUID
+- **请求体**：无
+
+**行为**：清空 `deleted_at` / `deleted_by`
+
+**成功响应** `200`：恢复后的 `AdminQuestionDetail`。
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `404` | 题目不存在 |
+| `409` | 题目未被软删除 |
+
+---
+
+## 试卷管理
 
 ### `GET /admin/papers`
 
-按条件分页查询试卷，支持查看活跃、已删除或全部记录。
+管理员视角查询试卷，可查看软删除记录。
 
-支持的 query 参数：
+- **认证**：`admin`
 
-- `state`
-  - `active` | `deleted` | `all`
-  - 默认 `all`
-- `question_id`
-- `category`
-- `tag`
-- `q`
-- `limit`（默认 20，最大 100）
-- `offset`（默认 0）
+**Query 参数**：
 
-响应格式（分页包裹）：
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `state` | `"active"` \| `"deleted"` \| `"all"` | `"all"` | 记录状态过滤 |
+| 其他参数 | — | — | 同 `GET /papers` 的全部过滤参数 |
 
-```json
-{
-  "items": [ ... ],
-  "total": 12,
-  "limit": 20,
-  "offset": 0
-}
-```
+**成功响应** `200`：分页包裹，`items` 为 `AdminPaperSummary[]`。
 
-`items` 中每个元素在普通试卷摘要字段之外追加：
+`AdminPaperSummary` = `PaperSummary` + `deleted_at` / `deleted_by` / `is_deleted`。
 
-- `deleted_at`
-- `deleted_by`
-- `is_deleted`
+---
 
-### `GET /admin/papers/{paper_id}`
+### `GET /admin/papers/:paper_id`
 
-返回单个试卷的完整详情，不区分是否已软删除。
+管理员视角获取试卷详情（含软删除记录）。
 
-返回值会在普通试卷详情字段之外追加：
+- **认证**：`admin`
+- **路径参数**：`paper_id` — UUID
 
-- `deleted_at`
-- `deleted_by`
-- `is_deleted`
+**成功响应** `200`：`AdminPaperDetail` = `PaperDetail` + `deleted_at` / `deleted_by` / `is_deleted`。
 
-### `POST /admin/papers/{paper_id}/restore`
+---
 
-恢复一个已软删除的试卷。
+### `POST /admin/papers/:paper_id/restore`
 
-- 如果试卷不存在，返回 `404`
-- 如果试卷未被软删除，返回 `409`
-- 如果试卷引用了已删除题目，或这些题目当前不再满足试卷创建约束，返回 `409`
+恢复已软删除的试卷。
 
-成功时返回恢复后的管理员试卷详情。
+- **认证**：`admin`
+- **路径参数**：`paper_id` — UUID
+- **请求体**：无
+
+**行为**：
+
+- 检查试卷必须已软删除
+- 检查引用的所有题目不能有已软删除的
+- 对题目集合重新校验创建约束（category 一致性、status 合规性）
+- 清空 `deleted_at` / `deleted_by`
+
+**成功响应** `200`：恢复后的 `AdminPaperDetail`。
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `404` | 试卷不存在 |
+| `409` | 试卷未被软删除 / 引用的题目已被删除或不满足约束 |
+
+---
+
+## 垃圾回收
 
 ### `POST /admin/garbage-collections/preview`
 
-预演垃圾回收，但不会真正提交删除。
+预演垃圾回收（dry run），不会真正提交。
 
-请求体：
+- **认证**：`admin`
+- **Content-Type**：`application/json`
+- **请求体**：必须为空对象 `{}`（传任何额外字段返回 `400`）
 
-```json
-{}
-```
-
-返回值：
+**成功响应** `200`：
 
 ```json
 {
@@ -142,24 +147,23 @@
 }
 ```
 
-语义：
-
-- 会统计当前所有可安全硬删除的软删除题目
-- 会统计当前所有软删除试卷
-- 会统计这些硬删除后会变成无引用的 `objects`，以及已经存在的孤儿 `objects`
-- 整个流程在事务里回滚，因此只提供精确预览，不会改数据
+---
 
 ### `POST /admin/garbage-collections/run`
 
-真正执行垃圾回收。
+真正执行垃圾回收（硬删除）。
 
-请求体与返回值格式和 `preview` 相同，只是 `dry_run = false`。
+- **认证**：`admin`
+- **Content-Type**：`application/json`
+- **请求体**：`{}`
 
-执行顺序：
+**执行顺序**：
 
-1. 硬删除已软删除试卷
-2. 硬删除不再被未删除试卷引用的已软删除题目
-3. 删除所有无任何引用的 `objects`
+1. 硬删除所有已软删除试卷
+2. 硬删除"已软删且不再被未软删试卷引用"的题目
+3. 删除所有无任何引用的 objects（含关联的二进制数据）
+
+**成功响应** `200`：格式同 preview，但 `dry_run: false`。
 
 ---
 
@@ -169,37 +173,34 @@
 
 分页列出所有用户。
 
-支持的 query 参数：
+- **认证**：`admin`
 
-- `limit`（默认 20，最大 100）
-- `offset`（默认 0）
+**Query 参数**：
 
-响应格式（分页包裹）：
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `limit` | int | `20` | 每页数量，范围 1-100 |
+| `offset` | int | `0` | 偏移量 |
 
-```json
-{
-  "items": [
-    {
-      "user_id": "...",
-      "username": "admin",
-      "display_name": "Administrator",
-      "role": "admin",
-      "is_active": true,
-      "created_at": "2025-01-01T00:00:00.000Z",
-      "updated_at": "2025-01-01T00:00:00.000Z"
-    }
-  ],
-  "total": 1,
-  "limit": 20,
-  "offset": 0
-}
-```
+**成功响应** `200`：分页包裹，`items` 为 `UserProfile[]`。
+
+---
 
 ### `POST /admin/users`
 
 创建新用户。
 
-请求体：
+- **认证**：`admin`
+- **Content-Type**：`application/json`
+
+**请求体**：
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `username` | string | ✅ | — | 用户名，trim 后非空，唯一 |
+| `password` | string | ✅ | — | 密码，长度 ≥ 6 |
+| `display_name` | string | — | `""` | 显示名 |
+| `role` | `"viewer"` \| `"editor"` \| `"admin"` | — | `"viewer"` | 角色 |
 
 ```json
 {
@@ -210,45 +211,119 @@
 }
 ```
 
-- `username`: 必填，唯一
-- `password`: 必填，至少 6 个字符
-- `display_name`: 可选，默认空字符串
-- `role`: 可选，默认 `viewer`，可选值 `viewer` / `editor` / `admin`
+**成功响应** `200`：`UserProfile` 对象。
 
-成功返回用户信息（同列表中的 item 格式）。
+**错误**：
 
-错误：
+| 状态码 | 场景 |
+|---|---|
+| `400` | 参数校验失败 |
+| `409` | 用户名已存在 |
 
-- `400`: 参数校验失败
-- `409`: 用户名已存在
+---
 
-### `PATCH /admin/users/{user_id}`
+### `PATCH /admin/users/:user_id`
 
-更新用户信息。至少提供一个字段。
+更新用户信息。
 
-请求体（均为可选）：
+- **认证**：`admin`
+- **路径参数**：`user_id` — UUID
+- **Content-Type**：`application/json`
+
+**请求体**（至少提供一个字段）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `display_name` | string | 显示名 |
+| `role` | `"viewer"` \| `"editor"` \| `"admin"` | 角色 |
+| `is_active` | boolean | 是否启用 |
 
 ```json
 {
-  "display_name": "New Name",
   "role": "admin",
-  "is_active": false
+  "is_active": true
 }
 ```
 
-错误：
+**特殊约束**：不允许管理员将自己设为 `is_active=false`。
 
-- `400`: 无可更新字段 / 角色值无效 / 尝试停用自己
-- `404`: 用户不存在
+**成功响应** `200`：更新后的 `UserProfile`。
 
-### `DELETE /admin/users/{user_id}`
+**错误**：
 
-停用用户（软删除），同时撤销其所有 refresh token。
+| 状态码 | 场景 |
+|---|---|
+| `400` | 无可更新字段 / 角色值无效 / 尝试停用自己 |
+| `404` | 用户不存在 |
 
+---
+
+### `DELETE /admin/users/:user_id`
+
+停用用户（非硬删除）。
+
+- **认证**：`admin`
+- **路径参数**：`user_id` — UUID
+
+**行为**：
+
+- 设置 `is_active = false`
+- 撤销该用户的所有 refresh token
 - 不允许停用自己
-- 返回 `{ "message": "user deactivated" }`
 
-错误：
+**成功响应** `200`：
 
-- `400`: 尝试删除自己
-- `404`: 用户不存在
+```json
+{
+  "message": "user deactivated"
+}
+```
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | 尝试删除自己 |
+| `404` | 用户不存在 |
+
+---
+
+### `POST /admin/users/:user_id/reset-password`
+
+管理员重置指定用户密码。
+
+- **认证**：`admin`
+- **路径参数**：`user_id` — UUID
+- **Content-Type**：`application/json`
+
+**请求体**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `new_password` | string | ✅ | 新密码，长度 ≥ 6 |
+
+```json
+{
+  "new_password": "new-secure-password"
+}
+```
+
+**行为**：
+
+- 重置密码哈希
+- 撤销该用户的所有 refresh token（强制重新登录）
+
+**成功响应** `200`：
+
+```json
+{
+  "message": "password reset"
+}
+```
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | 密码长度不足 6 |
+| `404` | 用户不存在 |

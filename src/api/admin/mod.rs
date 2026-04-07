@@ -38,4 +38,8 @@ pub(crate) fn router() -> Router<super::AppState> {
             "/admin/users/:user_id",
             axum::routing::patch(handlers::update_user).delete(handlers::delete_user),
         )
+        .route(
+            "/admin/users/:user_id/reset-password",
+            axum::routing::post(handlers::reset_password),
+        )
 }

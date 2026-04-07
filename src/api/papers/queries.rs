@@ -113,22 +113,9 @@ pub(crate) fn map_paper_summary(row: PgRow) -> super::models::PaperSummary {
     }
 }
 
-pub(crate) fn map_paper_question_summary(
-    row: PgRow,
-    tags: Vec<String>,
-) -> super::models::PaperQuestionSummary {
-    super::models::PaperQuestionSummary {
-        question_id: row.get("question_id"),
-        sort_order: row.get("sort_order"),
-        category: row.get("category"),
-        status: row.get("status"),
-        tags,
-    }
-}
-
 pub(crate) fn map_paper_detail(
     row: PgRow,
-    questions: Vec<super::models::PaperQuestionSummary>,
+    questions: Vec<crate::api::questions::models::QuestionSummary>,
 ) -> super::models::PaperDetail {
     super::models::PaperDetail {
         paper_id: row.get("paper_id"),

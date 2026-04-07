@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::api::questions::models::validate_question_category;
+use crate::api::questions::models::{validate_question_category, QuestionSummary};
 use crate::api::shared::{
     pagination::{normalize_limit, normalize_offset},
     utils::{normalize_bundle_description, normalize_optional_bundle_description},
@@ -21,15 +21,6 @@ pub struct PaperSummary {
 }
 
 #[derive(Debug, Serialize)]
-pub struct PaperQuestionSummary {
-    pub(crate) question_id: String,
-    pub(crate) sort_order: i32,
-    pub(crate) category: String,
-    pub(crate) status: String,
-    pub(crate) tags: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct PaperDetail {
     pub(crate) paper_id: String,
     pub(crate) description: String,
@@ -37,7 +28,7 @@ pub struct PaperDetail {
     pub(crate) subtitle: String,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
-    pub(crate) questions: Vec<PaperQuestionSummary>,
+    pub(crate) questions: Vec<QuestionSummary>,
 }
 
 #[derive(Debug)]

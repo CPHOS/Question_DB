@@ -148,6 +148,69 @@ def test_change_password(api):
     api.set_token(saved)
 
 
+def test_admin_reset_password(api):
+    """Admin can reset another user's password."""
+    # Create a temp user
+    _, body, _ = api.post_json("/admin/users", {
+        "username": "pw_reset_user",
+        "password": "original123",
+        "role": "viewer",
+    })
+    user = parse_json(body)
+    user_id = user["user_id"]
+
+    # Reset password as admin
+    _, body, _ = api.post_json(f"/admin/users/{user_id}/reset-password", {
+        "new_password": "reset456",
+    })
+    msg = parse_json(body)
+    assert msg["message"] == "password reset"
+
+    # Old password should fail
+    saved = api._access_token
+    api.set_token(None)
+    api._do(
+        "POST", "/auth/login", expect=401,
+        headers={"content-type": "application/json"},
+        body=b'{"username":"pw_reset_user","password":"original123"}',
+    )
+
+    # New password should work
+    api.login("pw_reset_user", "reset456")
+
+    # Cleanup
+    api.login("admin", "changeme")
+    api.delete(f"/admin/users/{user_id}")
+    api.set_token(saved)
+
+
+def test_admin_reset_password_validation(api):
+    """Reset password rejects short passwords and bad user IDs."""
+    # Create a temp user
+    _, body, _ = api.post_json("/admin/users", {
+        "username": "pw_reset_val",
+        "password": "valid12345",
+        "role": "viewer",
+    })
+    user = parse_json(body)
+    user_id = user["user_id"]
+
+    # Too short
+    api.post_json(f"/admin/users/{user_id}/reset-password", {
+        "new_password": "ab",
+    }, expect=400)
+
+    # Non-existent user
+    api.post_json(
+        "/admin/users/00000000-0000-0000-0000-000000000000/reset-password",
+        {"new_password": "abcdef"},
+        expect=404,
+    )
+
+    # Cleanup
+    api.delete(f"/admin/users/{user_id}")
+
+
 # ── RBAC tests ───────────────────────────────────────────────────
 
 

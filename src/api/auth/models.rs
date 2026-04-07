@@ -39,6 +39,7 @@ impl Role {
 #[derive(Debug, Clone)]
 pub(crate) struct CurrentUser {
     pub(crate) user_id: String,
+    #[allow(dead_code)]
     pub(crate) username: String,
     pub(crate) role: Role,
 }
@@ -111,6 +112,11 @@ pub(crate) struct UpdateUserRequest {
     pub(crate) display_name: Option<String>,
     pub(crate) role: Option<String>,
     pub(crate) is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ResetPasswordRequest {
+    pub(crate) new_password: String,
 }
 
 #[derive(Debug, Deserialize)]

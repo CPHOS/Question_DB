@@ -4,15 +4,12 @@ use sqlx::{query, PgPool, Row};
 use super::error::NotFoundError;
 
 use crate::api::{
-    papers::{
-        models::PaperDetail,
-        queries::{map_paper_detail, map_paper_question_summary},
-    },
+    papers::{models::PaperDetail, queries::map_paper_detail},
     questions::{
         models::{QuestionDetail, QuestionPaperRef},
         queries::{
             load_question_difficulties, load_question_files, load_question_tags,
-            map_question_detail, map_question_paper_ref,
+            map_question_detail, map_question_paper_ref, map_question_summary,
         },
     },
 };
@@ -142,7 +139,16 @@ pub(crate) async fn load_paper_detail(
     let deleted_by: Option<String> = paper_row.get("deleted_by");
     let question_rows = query(&format!(
         r#"
-        SELECT q.question_id::text AS question_id, pq.sort_order, q.category, q.status
+        SELECT q.question_id::text AS question_id,
+               q.source_tex_path,
+               q.category,
+               q.status,
+               COALESCE(q.description, '') AS description,
+               q.score,
+               q.author,
+               q.reviewers,
+               to_char(q.created_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS created_at,
+               to_char(q.updated_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS updated_at
         FROM paper_questions pq
         JOIN questions q ON q.question_id = pq.question_id
         WHERE pq.paper_id = $1::uuid{question_filter}
@@ -160,7 +166,10 @@ pub(crate) async fn load_paper_detail(
         let tags = load_question_tags(pool, &question_id)
             .await
             .with_context(|| format!("load paper question tags failed: {question_id}"))?;
-        questions.push(map_paper_question_summary(row, tags));
+        let difficulty = load_question_difficulties(pool, &question_id)
+            .await
+            .with_context(|| format!("load paper question difficulties failed: {question_id}"))?;
+        questions.push(map_question_summary(row, tags, difficulty));
     }
 
     Ok(LoadedPaperDetail {

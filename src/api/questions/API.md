@@ -1,57 +1,164 @@
 # Questions API
 
-鉴权要求：
-- `GET` 操作：需要 `viewer` 及以上角色
-- `POST / PATCH / DELETE / PUT` 操作：需要 `editor` 及以上角色
+> 题目的增删改查、文件替换和批量打包接口。
+
+- **`GET` 操作**：需要 `viewer` 及以上角色
+- **`POST / PATCH / DELETE / PUT` 操作**：需要 `editor` 及以上角色
 - 所有请求需携带 `Authorization: Bearer <access_token>` 头
+
+---
+
+## 数据结构
+
+### `QuestionSummary`
+
+```json
+{
+  "question_id": "uuid",
+  "source": { "tex": "\\begin{problem}[20]\n..." },
+  "category": "T",
+  "status": "reviewed",
+  "description": "热学标定 gamma",
+  "score": 20,
+  "author": "张三",
+  "reviewers": ["李四"],
+  "tags": ["optics", "thermodynamics"],
+  "difficulty": {
+    "human": { "score": 7, "notes": "较难" }
+  },
+  "created_at": "2026-01-01T00:00:00.000Z",
+  "updated_at": "2026-01-01T00:00:00.000Z"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `question_id` | string(UUID) | 题目 ID |
+| `source.tex` | string | tex 源码内容 |
+| `category` | `"none"` \| `"T"` \| `"E"` | 分类：无 / 理论 / 实验 |
+| `status` | `"none"` \| `"reviewed"` \| `"used"` | 状态 |
+| `description` | string | 题目描述（用于命名和搜索） |
+| `score` | int \| null | 从 tex `\begin{problem}[N]` 自动提取的分值 |
+| `author` | string | 命题人 |
+| `reviewers` | string[] | 审题人列表 |
+| `tags` | string[] | 标签列表 |
+| `difficulty` | object | 难度评估，key 为 tag（如 `human`），value 含 `score`(1-10) 和可选 `notes` |
+| `created_at` | string(ISO 8601) | 创建时间 |
+| `updated_at` | string(ISO 8601) | 更新时间 |
+
+### `QuestionDetail`
+
+在 `QuestionSummary` 基础上增加：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `tex_object_id` | string(UUID) | tex 文件的对象存储 ID |
+| `assets` | `QuestionAssetRef[]` | 关联的资源文件列表 |
+| `papers` | `QuestionPaperRef[]` | 包含此题的试卷列表（仅未软删试卷） |
+
+### `QuestionAssetRef`
+
+```json
+{
+  "path": "assets/fig1.png",
+  "file_kind": "asset",
+  "object_id": "uuid",
+  "mime_type": "image/png"
+}
+```
+
+### `QuestionPaperRef`
+
+```json
+{
+  "paper_id": "uuid",
+  "description": "综合训练试卷 A",
+  "title": "综合训练 2026 A 卷",
+  "subtitle": "校内选拔 初版",
+  "sort_order": 1
+}
+```
+
+---
 
 ## Endpoints
 
+### `GET /questions`
+
+按条件分页查询题目。
+
+- **认证**：`viewer` 及以上
+- **说明**：只返回未软删除题目
+
+**Query 参数**：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `paper_id` | UUID | — | 按所属试卷过滤 |
+| `category` | `"none"` \| `"T"` \| `"E"` | — | 按分类过滤 |
+| `tag` | string | — | 按标签过滤 |
+| `score_min` | int (≥0) | — | 分值下限 |
+| `score_max` | int (≥0) | — | 分值上限 |
+| `difficulty_tag` | string | — | 难度 tag，如 `human` |
+| `difficulty_min` | int (1-10) | — | 难度下限（需同时有 `difficulty_tag`） |
+| `difficulty_max` | int (1-10) | — | 难度上限（需同时有 `difficulty_tag`） |
+| `q` | string | — | 关键词，ILIKE 匹配 `description` |
+| `limit` | int | `20` | 每页数量，范围 1-100 |
+| `offset` | int | `0` | 偏移量 |
+
+**成功响应** `200`：分页包裹，`items` 为 `QuestionSummary[]`。
+
+---
+
+### `GET /questions/:question_id`
+
+返回单个题目完整详情。
+
+- **认证**：`viewer` 及以上
+- **路径参数**：`question_id` — UUID
+- **说明**：只返回未软删除题目
+
+**成功响应** `200`：`QuestionDetail` 对象。
+
+**错误**：`404` — 题目不存在或已软删除
+
+---
+
 ### `POST /questions`
 
-使用 `multipart/form-data` 上传单题 zip 压缩包。
+上传新题目（zip 包）。
 
-- 字段名：`file`
-- 必填字段：`description`
-  - 必须是非空字符串
-  - 支持中文
-  - 不能包含 `/ \\ : * ? " < > |`
-  - 不能是 `.`、`..`，也不能以 `.` 结尾
-- 必填字段：`difficulty`
-  - 传 JSON 字符串
-  - 必须至少包含 `human`
-  - 每个 tag 的值形如 `{ "score": 7, "notes": "sample" }`
-- 可选字段：`category`
-  - `none` | `T` | `E`
-- 可选字段：`tags`
-  - 传 JSON 字符串数组
-  - 会去重；`[]` 表示创建时无标签
-- 可选字段：`status`
-  - `none` | `reviewed` | `used`
-- 可选字段：`author`
-  - 命题人，字符串
-  - 默认空串
-- 可选字段：`reviewers`
-  - 审题人列表，传 JSON 字符串数组
-  - 会去重；默认 `[]`
-- 大小限制：20 MiB
-- zip 逻辑根目录必须包含且只包含：
-  - 恰好一个 `.tex` 文件
-  - 可选的 `assets/` 目录
-- 如果 zip 最外层只有一个包裹目录，服务端会先把这个目录当作逻辑根目录再继续解析
-- 如果未传可选 metadata，则默认：
-  - `category = "none"`
-  - `tags = []`
-  - `status = "none"`
-  - `author = ""`
-  - `reviewers = []`
-- `created_at = NOW()`
-- `score` 会自动从 tex 文件中的 `\begin{problem}[<score>]` 标记提取
-  - 整数类型
-  - 如果 tex 中不包含该标记，则为 `null`
-  - 不支持通过 PATCH 手动更新
+- **认证**：`editor` 及以上
+- **Content-Type**：`multipart/form-data`
+- **大小限制**：zip 文件 ≤ 20 MiB
 
-成功响应：
+**Multipart 字段**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `file` | binary (zip) | ✅ | 题目 zip 文件 |
+| `description` | string | ✅ | 题目描述，非空；不能含 `/ \ : * ? " < > \|`，不能是 `.`/`..`，不能以 `.` 结尾 |
+| `difficulty` | JSON string | ✅ | 难度对象，必须至少含 `human` key，score 1-10 |
+| `category` | string | — | `"none"` \| `"T"` \| `"E"`，默认 `"none"` |
+| `tags` | JSON string | — | 字符串数组，默认 `[]`，会去重，不允许空字符串元素 |
+| `status` | string | — | `"none"` \| `"reviewed"` \| `"used"`，默认 `"none"` |
+| `author` | string | — | 命题人，默认 `""` |
+| `reviewers` | JSON string | — | 字符串数组，默认 `[]`，会去重，不允许空字符串元素 |
+
+**ZIP 结构要求**：
+
+- 逻辑根目录必须恰好一个 `.tex` 文件
+- 可选一个 `assets/` 目录（内含引用的图片等资源）
+- 若最外层是单一包裹目录，会自动剥离一层
+- 拒绝路径穿越（`..`）和绝对路径
+- 总解压体积 ≤ 64 MiB
+
+**自动行为**：
+
+- `score` 自动从 tex 中的 `\begin{problem}[<score>]` 提取（整数或 null）
+- `score` 不支持通过 PATCH 手动修改
+
+**成功响应** `200`：
 
 ```json
 {
@@ -62,59 +169,89 @@
 }
 ```
 
-### `PATCH /questions/{question_id}`
+**错误**：`400` — zip 格式错误 / 缺少 tex 文件 / 参数校验失败
 
-使用 JSON 请求体更新题目的 metadata，支持部分更新。
+**示例**：
 
-- 服务端会先锁定目标题目的主记录；同一题目的 metadata 更新、文件替换和删除会串行执行，避免并发重建 `tags` / `difficulty` 时出现竞态
-- 已软删除题目会被视为不存在，返回 `404`
+```bash
+curl -X POST http://127.0.0.1:8080/questions \
+  -H "Authorization: Bearer <token>" \
+  -F 'file=@question.zip;type=application/zip' \
+  -F 'description=热学标定 gamma' \
+  -F 'difficulty={"human":{"score":7}}' \
+  -F 'category=T' \
+  -F 'tags=["optics","thermodynamics"]'
+```
 
-支持字段：
+---
 
-- `category`: `none` | `T` | `E`
-- `description`: 非空字符串，不能传 `null` 或空串
-  - 同样不能包含 `/ \\ : * ? " < > |`
-- `tags`: 字符串数组，会去重；空数组表示清空
-- `status`: `none` | `reviewed` | `used`
-- `difficulty`: 对象
-  - key 是 difficulty tag，例如 `human`、`heuristic`
-  - value 形如 `{ "score": 7, "notes": "sample" }`
-  - `score` 必须是 `1..=10`
-  - `notes` 可选；空串会规范化为 `null`
-  - 如果传了 `difficulty`，会整体替换整组 difficulty
-  - `difficulty` 必须至少包含 `human`
-- `author`: 命题人，字符串
-- `reviewers`: 审题人列表，字符串数组，会去重
+### `PATCH /questions/:question_id`
 
-成功时返回更新后的完整题目详情。
+部分更新题目元数据。
 
-### `PUT /questions/{question_id}/file`
+- **认证**：`editor` 及以上
+- **Content-Type**：`application/json`
+- **路径参数**：`question_id` — UUID
+- **说明**：至少提供一个字段；已软删除题目返回 `404`；使用行锁保证并发安全
 
-使用 `multipart/form-data` 覆盖题目的当前 zip 文件内容，只更新文件，不修改 metadata。
+**请求体字段**（均为可选，但至少提供一个）：
 
-- 字段名：`file`
-- 大小限制：20 MiB
-- zip 逻辑根目录必须包含且只包含：
-  - 恰好一个 `.tex` 文件
-  - 可选的 `assets/` 目录
-- 如果 zip 最外层只有一个包裹目录，服务端会先把这个目录当作逻辑根目录再继续解析
-- 成功后会：
-  - 删除题目当前关联的 tex / asset 文件对象
-  - 写入新 zip 中的 tex / asset 文件
-  - 更新 `source_tex_path`
-  - 重新提取 `score`（从新 tex 文件的 `\begin{problem}[<score>]`）
-  - 更新 `updated_at`
-- 原有 metadata 会保留：
-  - `category`
-  - `description`
-  - `author`
-  - `reviewers`
-  - `tags`
-  - `status`
-  - `difficulty`
-- 已软删除题目会被视为不存在，返回 `404`
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `category` | `"none"` \| `"T"` \| `"E"` | 分类 |
+| `description` | string | 题目描述（不能为 null 或空串），需满足文件名安全规则 |
+| `tags` | string[] | 标签列表，整体替换；空数组 `[]` 表示清空 |
+| `status` | `"none"` \| `"reviewed"` \| `"used"` | 状态 |
+| `difficulty` | object | 整体替换难度评估；必须至少含 `human`；score 1-10；`notes` 若为空串会规范化为 null |
+| `author` | string | 命题人 |
+| `reviewers` | string[] | 审题人列表，会去重 |
 
-成功响应：
+```json
+{
+  "category": "T",
+  "tags": ["optics"],
+  "difficulty": {
+    "human": { "score": 8 }
+  }
+}
+```
+
+**成功响应** `200`：更新后的 `QuestionDetail`。
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | 无可更新字段 / 参数校验失败 / 未知字段 |
+| `404` | 题目不存在或已软删除 |
+
+---
+
+### `PUT /questions/:question_id/file`
+
+替换题目的 zip 文件内容（tex 和 assets），不修改元数据。
+
+- **认证**：`editor` 及以上
+- **Content-Type**：`multipart/form-data`
+- **路径参数**：`question_id` — UUID
+- **大小限制**：zip 文件 ≤ 20 MiB
+
+**Multipart 字段**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `file` | binary (zip) | ✅ | 新的题目 zip 文件（结构要求同创建） |
+
+**行为**：
+
+- 删除旧的 tex / asset 文件对象
+- 写入新文件对象
+- 更新 `source_tex_path`
+- 重新提取 `score`
+- 更新 `updated_at`
+- 保留所有原有元数据（category、tags、difficulty 等）
+
+**成功响应** `200`：
 
 ```json
 {
@@ -126,18 +263,25 @@
 }
 ```
 
-### `DELETE /questions/{question_id}`
+**错误**：`404` — 题目不存在或已软删除
+
+---
+
+### `DELETE /questions/:question_id`
 
 软删除题目。
 
-语义：
+- **认证**：`editor` 及以上
+- **路径参数**：`question_id` — UUID
 
-- 只会更新 `deleted_at` / `deleted_by` / `updated_at`
-- 不会立刻删除题目 binary；最终清理由管理员垃圾回收接口处理
-- 已软删除题目会被视为不存在，重复删除返回 `404`
-- 如果题目仍被任意未软删除试卷引用，返回 `409`
+**行为**：
 
-成功响应：
+- 设置 `deleted_at` / `deleted_by` / `updated_at`
+- 不会立刻删除文件对象，由管理员垃圾回收处理
+- 已软删除题目重复删除返回 `404`
+- 若题目仍被未软删除试卷引用，返回 `409`
+
+**成功响应** `200`：
 
 ```json
 {
@@ -146,61 +290,27 @@
 }
 ```
 
-### `GET /questions`
+**错误**：
 
-按条件分页查询题目，搜索也统一走这个接口。
+| 状态码 | 场景 |
+|---|---|
+| `404` | 题目不存在或已软删除 |
+| `409` | 题目仍被未软删除试卷引用 |
 
-说明：
-
-- 只返回未软删除题目
-
-支持的 query 参数：
-
-- `paper_id`
-- `category`
-- `tag`
-- `score_min`
-- `score_max`
-- `difficulty_tag`
-- `difficulty_min`
-- `difficulty_max`
-- `q`
-  关键词搜索，只会匹配 `description`
-- `limit`（默认 20，最大 100）
-- `offset`（默认 0）
-
-说明：
-
-- `score_min` / `score_max` 可单独使用，也可组合使用
-- `score_min` 必须 ≤ `score_max`（如同时提供）
-- `difficulty_min` / `difficulty_max` 需要和 `difficulty_tag` 一起使用
-- difficulty 过滤会匹配指定 tag 上的 score 范围
-
-响应格式（分页包裹）：
-
-```json
-{
-  "items": [ ... ],
-  "total": 42,
-  "limit": 20,
-  "offset": 0
-}
-```
-
-### `GET /questions/{question_id}`
-
-返回单个题目的完整 metadata、文件引用和所属试卷。
-
-说明：
-
-- 只返回未软删除题目
-- 返回的 `papers` 只包含未软删除试卷
+---
 
 ### `POST /questions/bundles`
 
-按给定题目列表批量打包下载。
+批量打包下载题目原始文件。
 
-请求体：
+- **认证**：`editor` 及以上
+- **Content-Type**：`application/json`
+
+**请求体**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `question_ids` | string(UUID)[] | ✅ | 题目 ID 列表，非空、去重、每项必须为有效 UUID |
 
 ```json
 {
@@ -208,10 +318,28 @@
 }
 ```
 
-返回值：
+**成功响应** `200`：
 
-- 响应体是一个 `application/zip`
-- zip 根目录包含 `manifest.json`
-- 每个题目使用 `description_uuid前缀/` 目录分组，例如 `热学标定 gamma_550e84/`
-- 目录内包含原始 `.tex` 和 `assets/` 资源文件
-- 已软删除题目不能通过这个接口下载
+- **Content-Type**：`application/zip`
+- **Header** 含 `content-disposition`（下载文件名）和 `content-length`
+
+**ZIP 结构**：
+
+```
+manifest.json
+热学标定gamma_550e84/
+  main.tex
+  assets/
+    fig1.png
+```
+
+- `manifest.json`：题目清单元数据
+- 每题目录命名规则：`{description}_{uuid前6位}/`
+- 目录内含原始 `.tex` 和 `assets/` 资源
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | 列表为空 / 含空值 / 含无效 UUID / 有重复 |
+| `404` | 有题目不存在或已软删除 |

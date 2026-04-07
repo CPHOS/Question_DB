@@ -18,7 +18,7 @@ use tower_http::trace::TraceLayer;
 
 pub use self::auth::password::hash_password;
 pub use self::auth::queries::seed_admin_if_empty;
-pub use self::papers::models::{PaperDetail, PaperQuestionSummary, PaperSummary};
+pub use self::papers::models::{PaperDetail, PaperSummary};
 pub use self::questions::models::{
     QuestionAssetRef, QuestionDetail, QuestionPaperRef, QuestionSummary,
 };

@@ -22,13 +22,10 @@ use crate::api::{
         render_paper_bundle, PaperTemplateKind, RenderPaperInput, RenderQuestionAssetInput,
         RenderQuestionInput,
     },
-    papers::{
-        models::PaperDetail,
-        queries::{map_paper_detail, map_paper_question_summary},
-    },
+    papers::{models::PaperDetail, queries::map_paper_detail},
     questions::{
-        models::{QuestionAssetRef, QuestionDetail},
-        queries::{load_question_files, load_question_tags},
+        models::{QuestionAssetRef, QuestionDetail, QuestionSummary},
+        queries::load_question_files,
     },
     shared::{
         db::fetch_object_bytes,
@@ -409,11 +406,9 @@ async fn load_paper_bundle_data(pool: &PgPool, paper_id: &str) -> Result<PaperBu
     let mut questions = Vec::with_capacity(question_rows.len());
     for row in question_rows {
         let question_id: String = row.get("question_id");
-        let tags = load_question_tags(pool, &question_id)
-            .await
-            .with_context(|| format!("load paper question tags failed: {question_id}"))?;
-        question_summaries.push(map_paper_question_summary(row, tags));
-        questions.push(load_question_bundle_data(pool, &question_id).await?);
+        let bundle_data = load_question_bundle_data(pool, &question_id).await?;
+        question_summaries.push(question_detail_to_summary(&bundle_data.metadata));
+        questions.push(bundle_data);
     }
 
     let appendix = paper_row
@@ -526,6 +521,26 @@ fn determine_paper_template_kind(questions: &[QuestionBundleData]) -> Result<Pap
     }
 
     Ok(template_kind)
+}
+
+fn question_detail_to_summary(detail: &QuestionDetail) -> QuestionSummary {
+    use crate::api::questions::models::QuestionSourceRef;
+    QuestionSummary {
+        question_id: detail.question_id.clone(),
+        source: QuestionSourceRef {
+            tex: detail.source.tex.clone(),
+        },
+        category: detail.category.clone(),
+        status: detail.status.clone(),
+        description: detail.description.clone(),
+        score: detail.score,
+        author: detail.author.clone(),
+        reviewers: detail.reviewers.clone(),
+        tags: detail.tags.clone(),
+        difficulty: detail.difficulty.clone(),
+        created_at: detail.created_at.clone(),
+        updated_at: detail.updated_at.clone(),
+    }
 }
 
 fn temp_zip_path(prefix: &str) -> PathBuf {
