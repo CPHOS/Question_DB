@@ -18,6 +18,7 @@ async fn health_route_returns_service_unavailable_when_db_is_unreachable() {
     let app = router(
         AppState {
             pool,
+            database_url: "postgres://postgres:postgres@127.0.0.1:1/qb".to_string(),
             export_dir: PathBuf::from("exports"),
             jwt_secret: "test-secret".to_string(),
         },

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:${QB_POSTGRES_MAJOR:-16}-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -20,6 +20,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PG_MAJOR: ${QB_POSTGRES_MAJOR:-16}
     restart: unless-stopped
     depends_on:
       db:

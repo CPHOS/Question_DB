@@ -27,3 +27,10 @@ pub(crate) struct ExportResponse {
     pub(crate) output_path: String,
     pub(crate) exported_questions: usize,
 }
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DatabaseRestoreResponse {
+    pub(crate) file_name: String,
+    pub(crate) restored_bytes: usize,
+    pub(crate) status: &'static str,
+}

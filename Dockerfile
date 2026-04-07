@@ -1,3 +1,5 @@
+ARG PG_MAJOR=16
+
 FROM rust:1-bookworm AS builder
 
 WORKDIR /app
@@ -6,13 +8,12 @@ COPY . .
 
 RUN cargo build --locked --release
 
-FROM debian:bookworm-slim AS runtime
+FROM postgres:${PG_MAJOR}-bookworm AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

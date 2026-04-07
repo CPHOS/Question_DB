@@ -26,6 +26,7 @@ pub use self::questions::models::{
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    pub database_url: String,
     pub export_dir: PathBuf,
     pub jwt_secret: String,
 }
@@ -86,7 +87,7 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
             auth::middleware::require_auth,
         ));
 
-    // Editor-level routes: create, update, delete, and restricted ops
+    // Editor-level routes: create, update, and delete
     let editor_routes = Router::new()
         .route(
             "/questions",
@@ -114,15 +115,15 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
             "/papers/:paper_id/file",
             axum::routing::put(papers::handlers::replace_paper_file),
         )
-        .merge(ops::router())
         .layer(axum_middleware::from_fn(auth::middleware::require_editor))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth::middleware::require_auth,
         ));
 
-    // Admin-level routes
+    // Admin-level routes, including restricted ops
     let admin_routes = Router::new()
+        .merge(ops::router())
         .merge(admin::router())
         .layer(axum_middleware::from_fn(auth::middleware::require_admin))
         .layer(axum_middleware::from_fn_with_state(
@@ -136,7 +137,9 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         .merge(editor_routes)
         .merge(admin_routes)
         .layer(DefaultBodyLimit::max(
-            questions::MAX_UPLOAD_BYTES.max(papers::MAX_UPLOAD_BYTES),
+            questions::MAX_UPLOAD_BYTES
+                .max(papers::MAX_UPLOAD_BYTES)
+                .max(ops::MAX_RESTORE_UPLOAD_BYTES),
         ))
         .layer(cors)
         .layer(TraceLayer::new_for_http())

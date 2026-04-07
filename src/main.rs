@@ -32,6 +32,7 @@ async fn main() -> Result<()> {
 
     let state = AppState {
         pool,
+        database_url: cfg.database_url.clone(),
         export_dir: cfg.export_dir.clone(),
         jwt_secret: cfg.jwt_secret.clone(),
     };

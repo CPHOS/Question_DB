@@ -244,7 +244,7 @@ def test_viewer_cannot_write(api):
 
 
 def test_editor_can_write_not_admin(api):
-    """Editor role can do writes but not admin endpoints."""
+    """Editor role can do regular writes but not admin or ops endpoints."""
     _, body, _ = api.post_json("/admin/users", {
         "username": "e2e_editor",
         "password": "editor123",
@@ -261,6 +261,10 @@ def test_editor_can_write_not_admin(api):
     # Cannot access admin (403 Forbidden)
     api.get("/admin/questions", expect=403)
     api.get("/admin/users", expect=403)
+    api.post_json("/exports/run", {"format": "jsonl"}, expect=403)
+    api.post_json("/quality-checks/run", {}, expect=403)
+    api.get("/database/backup", expect=403)
+    api.upload("/database/restore", expect=403)
 
     # Cleanup
     api.set_token(saved)

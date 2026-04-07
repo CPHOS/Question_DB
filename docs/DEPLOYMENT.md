@@ -4,7 +4,7 @@
 
 ## 部署内容
 
-- `Dockerfile`: 多阶段构建 Rust 后端镜像
+- `Dockerfile`: 多阶段构建 Rust 后端镜像，运行时内置与 PostgreSQL major version 对齐的 `pg_dump` / `psql`
 - `docker/entrypoint.sh`: 容器启动时等待数据库，并按文件名顺序执行 `migrations/*.sql`
 - `docker-compose.prod.yml`: 生产编排文件，包含 `api` 和 `db`
 - `compose.prod.env.example`: 生产环境变量示例
@@ -26,6 +26,12 @@ docker push registry.example.com/cphos/qb_api:2026-04-05
 
 对应地，把 `compose.prod.env.example` 里的 `QB_IMAGE_NAME` 和 `QB_IMAGE_TAG` 改成你的仓库地址和版本号即可。
 
+如果你把 PostgreSQL major version 从默认的 `16` 改成别的版本，构建镜像时还要同步传入 `PG_MAJOR`：
+
+```bash
+docker build --pull --build-arg PG_MAJOR=16 -t qb_api:latest .
+```
+
 ## 2. 准备环境变量
 
 先复制一份示例文件：
@@ -41,9 +47,14 @@ cp compose.prod.env.example .env
 - `QB_JWT_SECRET`
 - `QB_CORS_ORIGINS`
 
+可选但重要：
+
+- `QB_POSTGRES_MAJOR`：默认为 `16`，需要和 `db` 服务使用的 PostgreSQL major version 保持一致
+
 注意：
 
 - `QB_DATABASE_URL` 必须和 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 保持一致
+- `QB_POSTGRES_MAJOR` 必须和 `docker-compose.prod.yml` 中 `db` 服务实际运行的 PostgreSQL major version 保持一致，否则 `GET /database/backup` 使用的 `pg_dump` 可能报 `server version mismatch`
 - 如果数据库密码里包含 `@`、`:`、`/` 之类特殊字符，需要做 URL 编码再写进 `QB_DATABASE_URL`
 - `QB_JWT_SECRET` 请使用长随机字符串，生产环境不要沿用默认值
 
@@ -143,6 +154,8 @@ compose 文件里定义了两个命名卷：
 docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
   sh -lc 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > qb_backup.sql
 ```
+
+如果你使用后端提供的 `GET /database/backup` 接口，底层也是调用 `pg_dump`；一旦看到 `server version mismatch`，说明 API 镜像里的 PostgreSQL client major version 和数据库不一致，需要调整 `QB_POSTGRES_MAJOR` 后重新构建并部署 API 镜像。
 
 恢复数据库：
 

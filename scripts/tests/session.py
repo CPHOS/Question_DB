@@ -143,6 +143,7 @@ class ApiClient:
         *,
         fields: dict[str, str] | None = None,
         file_path: Path | None = None,
+        file_content_type: str = "application/zip",
         method: str = "POST",
         expect: int = 200,
     ):
@@ -159,7 +160,7 @@ class ApiClient:
                 f"--{boundary}\r\n"
                 f'Content-Disposition: form-data; name="file"; '
                 f'filename="{file_path.name}"\r\n'
-                f"Content-Type: application/zip\r\n\r\n"
+                f"Content-Type: {file_content_type}\r\n\r\n"
             ).encode()
             raw += file_path.read_bytes() + b"\r\n"
         raw += f"--{boundary}--\r\n".encode()
@@ -173,6 +174,40 @@ class ApiClient:
             },
             body=bytes(raw),
         )
+
+    def download_file(
+        self,
+        path: str,
+        output: Path,
+        *,
+        method: str = "GET",
+        payload: dict | None = None,
+        expect: int = 200,
+    ) -> tuple[bytes, dict[str, str]]:
+        data = json.dumps(payload, ensure_ascii=False).encode() if payload is not None else None
+        headers = {**self._auth_headers()}
+        if payload is not None:
+            headers["content-type"] = "application/json"
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{API_PORT}{path}",
+            data=data,
+            method=method,
+            headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                status = resp.status
+                body = resp.read()
+                rh = {k.lower(): v for k, v in resp.headers.items()}
+        except urllib.error.HTTPError as err:
+            raise AssertionError(
+                f"expected {expect}, got {err.code}: "
+                f"{err.read().decode(errors='replace')[:500]}"
+            ) from err
+        assert status == expect, f"expected {expect}, got {status}"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(body)
+        return body, rh
 
     def download_zip(
         self,
@@ -251,6 +286,7 @@ class ApiClient:
             "QB_DATABASE_URL": DB_URL,
             "QB_BIND_ADDR": f"127.0.0.1:{API_PORT}",
             "QB_EXPORT_DIR": str(TMP_DIR),
+            "QB_POSTGRES_CONTAINER_NAME": CONTAINER_NAME,
         }
         self._api_proc = subprocess.Popen(
             ["cargo", "run"], cwd=ROOT_DIR, env=env,

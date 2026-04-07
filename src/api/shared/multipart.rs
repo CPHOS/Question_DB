@@ -16,6 +16,15 @@ pub(crate) fn parse_uuid_param(id: &str, field_name: &str) -> Result<(), ApiErro
 
 /// Validate that an uploaded file is non-empty and within the size limit.
 pub(crate) fn validate_upload_size(bytes: &[u8], max_bytes: usize) -> Result<(), ApiError> {
+    validate_upload_size_with_label(bytes, max_bytes, "uploaded zip")
+}
+
+/// Validate that an uploaded file is non-empty and within the size limit.
+pub(crate) fn validate_upload_size_with_label(
+    bytes: &[u8],
+    max_bytes: usize,
+    label: &str,
+) -> Result<(), ApiError> {
     if bytes.is_empty() {
         return Err(ApiError::bad_request(
             "multipart form must include a non-empty 'file' field",
@@ -23,7 +32,7 @@ pub(crate) fn validate_upload_size(bytes: &[u8], max_bytes: usize) -> Result<(),
     }
     if bytes.len() > max_bytes {
         return Err(ApiError::bad_request(format!(
-            "uploaded zip exceeds {} MiB limit",
+            "{label} exceeds {} MiB limit",
             max_bytes / (1024 * 1024)
         )));
     }
