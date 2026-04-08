@@ -89,6 +89,30 @@ pub(crate) async fn list_admin_questions(
             .push(" AND COALESCE(q.description, '') ILIKE ")
             .push_bind(needle);
     }
+    if let Some(created_after) = &params.created_after {
+        builder
+            .push(" AND q.created_at >= ")
+            .push_bind(created_after)
+            .push("::timestamptz");
+    }
+    if let Some(created_before) = &params.created_before {
+        builder
+            .push(" AND q.created_at <= ")
+            .push_bind(created_before)
+            .push("::timestamptz");
+    }
+    if let Some(updated_after) = &params.updated_after {
+        builder
+            .push(" AND q.updated_at >= ")
+            .push_bind(updated_after)
+            .push("::timestamptz");
+    }
+    if let Some(updated_before) = &params.updated_before {
+        builder
+            .push(" AND q.updated_at <= ")
+            .push_bind(updated_before)
+            .push("::timestamptz");
+    }
 
     builder
         .push(" ORDER BY q.created_at DESC, q.question_id LIMIT ")
@@ -186,6 +210,30 @@ pub(crate) async fn list_admin_papers(
         builder
             .push(" AND CONCAT_WS(' ', p.description, p.title, p.subtitle) ILIKE ")
             .push_bind(needle);
+    }
+    if let Some(created_after) = &params.created_after {
+        builder
+            .push(" AND p.created_at >= ")
+            .push_bind(created_after)
+            .push("::timestamptz");
+    }
+    if let Some(created_before) = &params.created_before {
+        builder
+            .push(" AND p.created_at <= ")
+            .push_bind(created_before)
+            .push("::timestamptz");
+    }
+    if let Some(updated_after) = &params.updated_after {
+        builder
+            .push(" AND p.updated_at >= ")
+            .push_bind(updated_after)
+            .push("::timestamptz");
+    }
+    if let Some(updated_before) = &params.updated_before {
+        builder
+            .push(" AND p.updated_at <= ")
+            .push_bind(updated_before)
+            .push("::timestamptz");
     }
 
     builder
@@ -510,6 +558,30 @@ async fn count_admin_papers(
         builder
             .push(" AND CONCAT_WS(' ', p.description, p.title, p.subtitle) ILIKE ")
             .push_bind(needle);
+    }
+    if let Some(created_after) = &params.created_after {
+        builder
+            .push(" AND p.created_at >= ")
+            .push_bind(created_after)
+            .push("::timestamptz");
+    }
+    if let Some(created_before) = &params.created_before {
+        builder
+            .push(" AND p.created_at <= ")
+            .push_bind(created_before)
+            .push("::timestamptz");
+    }
+    if let Some(updated_after) = &params.updated_after {
+        builder
+            .push(" AND p.updated_at >= ")
+            .push_bind(updated_after)
+            .push("::timestamptz");
+    }
+    if let Some(updated_before) = &params.updated_before {
+        builder
+            .push(" AND p.updated_at <= ")
+            .push_bind(updated_before)
+            .push("::timestamptz");
     }
     let row = builder
         .build()

@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use sqlx::{postgres::PgRow, PgPool, Postgres, QueryBuilder, Row};
 
 use super::models::{validate_paper_filters, PapersParams};
-use crate::api::shared::{error::ValidationError, utils::escape_ilike};
+use crate::api::shared::{error::ValidationError, utils::{escape_ilike, validate_timestamp_param}};
 
 /// Returned from `build_query` with parameter bindings already attached.
 pub(crate) struct PapersQueryPlan<'a> {
@@ -53,6 +53,30 @@ impl PapersParams {
             builder
                 .push(" AND CONCAT_WS(' ', p.description, p.title, p.subtitle) ILIKE ")
                 .push_bind(needle);
+        }
+        if let Some(created_after) = &self.created_after {
+            builder
+                .push(" AND p.created_at >= ")
+                .push_bind(created_after)
+                .push("::timestamptz");
+        }
+        if let Some(created_before) = &self.created_before {
+            builder
+                .push(" AND p.created_at <= ")
+                .push_bind(created_before)
+                .push("::timestamptz");
+        }
+        if let Some(updated_after) = &self.updated_after {
+            builder
+                .push(" AND p.updated_at >= ")
+                .push_bind(updated_after)
+                .push("::timestamptz");
+        }
+        if let Some(updated_before) = &self.updated_before {
+            builder
+                .push(" AND p.updated_at <= ")
+                .push_bind(updated_before)
+                .push("::timestamptz");
         }
 
         let limit = self.normalized_limit();
@@ -152,6 +176,30 @@ fn push_paper_filters<'a>(builder: &mut QueryBuilder<'a, Postgres>, params: &'a 
         builder
             .push(" AND CONCAT_WS(' ', p.description, p.title, p.subtitle) ILIKE ")
             .push_bind(needle);
+    }
+    if let Some(created_after) = &params.created_after {
+        builder
+            .push(" AND p.created_at >= ")
+            .push_bind(created_after)
+            .push("::timestamptz");
+    }
+    if let Some(created_before) = &params.created_before {
+        builder
+            .push(" AND p.created_at <= ")
+            .push_bind(created_before)
+            .push("::timestamptz");
+    }
+    if let Some(updated_after) = &params.updated_after {
+        builder
+            .push(" AND p.updated_at >= ")
+            .push_bind(updated_after)
+            .push("::timestamptz");
+    }
+    if let Some(updated_before) = &params.updated_before {
+        builder
+            .push(" AND p.updated_at <= ")
+            .push_bind(updated_before)
+            .push("::timestamptz");
     }
 }
 

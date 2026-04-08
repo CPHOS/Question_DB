@@ -66,6 +66,10 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
             axum::routing::get(questions::handlers::list_question_tags),
         )
         .route(
+            "/questions/difficulty-tags",
+            axum::routing::get(questions::handlers::list_difficulty_tags),
+        )
+        .route(
             "/questions/:question_id",
             axum::routing::get(questions::handlers::get_question_detail),
         )

@@ -86,6 +86,11 @@ pub(crate) struct QuestionTagsResponse {
     pub(crate) tags: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct QuestionDifficultyTagsResponse {
+    pub(crate) difficulty_tags: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct QuestionsParams {
     pub(crate) paper_id: Option<String>,
@@ -96,6 +101,10 @@ pub(crate) struct QuestionsParams {
     pub(crate) difficulty_tag: Option<String>,
     pub(crate) difficulty_min: Option<i32>,
     pub(crate) difficulty_max: Option<i32>,
+    pub(crate) created_after: Option<String>,
+    pub(crate) created_before: Option<String>,
+    pub(crate) updated_after: Option<String>,
+    pub(crate) updated_before: Option<String>,
     pub(crate) q: Option<String>,
     pub(crate) limit: Option<i64>,
     pub(crate) offset: Option<i64>,

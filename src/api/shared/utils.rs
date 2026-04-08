@@ -62,6 +62,30 @@ fn validate_bundle_description(field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Validate that a string can be parsed as an ISO 8601 timestamp.
+/// Accepts `YYYY-MM-DD` (treated as midnight UTC) or full RFC 3339 strings.
+pub(crate) fn validate_timestamp_param(field: &str, value: &str) -> Result<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        bail!("{field} must not be empty");
+    }
+    // Try YYYY-MM-DD first
+    if chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d").is_ok() {
+        return Ok(());
+    }
+    // Try full RFC 3339 / ISO 8601
+    if chrono::DateTime::parse_from_rfc3339(trimmed).is_ok() {
+        return Ok(());
+    }
+    // Try without timezone (naive datetime)
+    if chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S").is_ok()
+        || chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
+    {
+        return Ok(());
+    }
+    bail!("{field} must be a valid ISO 8601 date or datetime (e.g. 2026-01-01 or 2026-01-01T00:00:00Z)");
+}
+
 /// Escape SQL ILIKE special characters (`%`, `_`, `\`) so they match literally.
 pub(crate) fn escape_ilike(input: &str) -> String {
     let mut result = String::with_capacity(input.len());

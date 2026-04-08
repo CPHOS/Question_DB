@@ -91,6 +91,18 @@
 |---|---|---|
 | `tags` | string[] | 所有未软删除题目的去重标签列表，按字典序升序返回 |
 
+### `QuestionDifficultyTagsResponse`
+
+```json
+{
+  "difficulty_tags": ["algo1", "human"]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `difficulty_tags` | string[] | 所有未软删除题目的去重难度标签列表，按字典序升序返回。前端建议默认选中 `human` |
+
 ---
 
 ## Endpoints
@@ -115,6 +127,10 @@
 | `difficulty_min` | int (1-10) | — | 难度下限（需同时有 `difficulty_tag`） |
 | `difficulty_max` | int (1-10) | — | 难度上限（需同时有 `difficulty_tag`） |
 | `q` | string | — | 关键词，ILIKE 匹配 `description` |
+| `created_after` | string(ISO 8601) | — | 创建时间下限（含），如 `2026-01-01` 或 `2026-01-01T00:00:00Z` |
+| `created_before` | string(ISO 8601) | — | 创建时间上限（含） |
+| `updated_after` | string(ISO 8601) | — | 更新时间下限（含） |
+| `updated_before` | string(ISO 8601) | — | 更新时间上限（含） |
 | `limit` | int | `20` | 每页数量，范围 1-100 |
 | `offset` | int | `0` | 偏移量 |
 
@@ -130,6 +146,17 @@
 - **说明**：只统计未软删除题目；自动去重；按字典序升序返回
 
 **成功响应** `200`：`QuestionTagsResponse` 对象。
+
+---
+
+### `GET /questions/difficulty-tags`
+
+返回所有未软删除题目当前使用中的难度标签（algorithm_tag）列表，适合前端做下拉选择。
+
+- **认证**：`viewer` 及以上
+- **说明**：只统计未软删除题目；自动去重；按字典序升序返回；前端建议默认选中 `human`
+
+**成功响应** `200`：`QuestionDifficultyTagsResponse` 对象。
 
 ---
 

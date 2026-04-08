@@ -11,7 +11,7 @@ use super::models::{
 };
 use crate::api::shared::{
     pagination::{normalize_limit, normalize_offset},
-    utils::escape_ilike,
+    utils::{escape_ilike, validate_timestamp_param},
 };
 
 /// Returned from `build_query` so callers can inspect limit/offset and the SQL
@@ -91,6 +91,30 @@ impl QuestionsParams {
                 .push(" AND COALESCE(q.description, '') ILIKE ")
                 .push_bind(needle);
         }
+        if let Some(created_after) = &self.created_after {
+            builder
+                .push(" AND q.created_at >= ")
+                .push_bind(created_after)
+                .push("::timestamptz");
+        }
+        if let Some(created_before) = &self.created_before {
+            builder
+                .push(" AND q.created_at <= ")
+                .push_bind(created_before)
+                .push("::timestamptz");
+        }
+        if let Some(updated_after) = &self.updated_after {
+            builder
+                .push(" AND q.updated_at >= ")
+                .push_bind(updated_after)
+                .push("::timestamptz");
+        }
+        if let Some(updated_before) = &self.updated_before {
+            builder
+                .push(" AND q.updated_at <= ")
+                .push_bind(updated_before)
+                .push("::timestamptz");
+        }
 
         let limit = self.normalized_limit();
         let offset = self.normalized_offset();
@@ -163,6 +187,18 @@ pub(crate) fn validate_question_filters(params: &QuestionsParams) -> Result<()> 
         if q.trim().is_empty() {
             return Err(anyhow!("q must not be empty"));
         }
+    }
+    if let Some(v) = &params.created_after {
+        validate_timestamp_param("created_after", v)?;
+    }
+    if let Some(v) = &params.created_before {
+        validate_timestamp_param("created_before", v)?;
+    }
+    if let Some(v) = &params.updated_after {
+        validate_timestamp_param("updated_after", v)?;
+    }
+    if let Some(v) = &params.updated_before {
+        validate_timestamp_param("updated_before", v)?;
     }
     Ok(())
 }
@@ -272,6 +308,25 @@ pub(crate) async fn list_active_question_tags(pool: &PgPool) -> Result<Vec<Strin
     .map(|rows| {
         rows.into_iter()
             .map(|row| row.get::<String, _>("tag"))
+            .collect()
+    })
+}
+
+pub(crate) async fn list_active_difficulty_tags(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
+    query(
+        "
+        SELECT DISTINCT qd.algorithm_tag
+        FROM question_difficulties qd
+        JOIN questions q ON q.question_id = qd.question_id
+        WHERE q.deleted_at IS NULL
+        ORDER BY qd.algorithm_tag
+        ",
+    )
+    .fetch_all(pool)
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|row| row.get::<String, _>("algorithm_tag"))
             .collect()
     })
 }

@@ -259,6 +259,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 - `POST /papers/bundles`
 - `GET /questions`
 - `GET /questions/tags`
+- `GET /questions/difficulty-tags`
 - `GET /questions/{question_id}`
 - `POST /questions/bundles`
 - `GET /admin/questions`
@@ -277,14 +278,24 @@ curl -X POST http://127.0.0.1:8080/papers \
 - `difficulty_tag`
 - `difficulty_min`
 - `difficulty_max`
+- `created_after` / `created_before`
+- `updated_after` / `updated_before`
 
-其中 `difficulty_min` / `difficulty_max` 需要和 `difficulty_tag` 一起使用。
+其中 `difficulty_min` / `difficulty_max` 需要和 `difficulty_tag` 一起使用。日期参数支持 `YYYY-MM-DD` 或 RFC 3339 格式。
+
+`GET /papers` 同样支持 `created_after` / `created_before` / `updated_after` / `updated_before` 日期范围筛选。
 
 `GET /questions/tags` 返回：
 
 - 所有未软删除题目的去重 tag 列表
 - 响应格式为 `{"tags": ["..."]}`
 - 按字典序升序返回，适合前端做输入联想和快速选择
+
+`GET /questions/difficulty-tags` 返回：
+
+- 所有未软删除题目的去重难度标签（algorithm_tag）列表
+- 响应格式为 `{"difficulty_tags": ["..."]}`
+- 按字典序升序返回，适合前端做下拉选择；建议默认选中 `human`
 
 说明：
 
@@ -337,10 +348,26 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d
 cargo test
 ```
 
-端到端脚本：
+端到端测试（基于 pytest，会自动启动 Docker PostgreSQL 和 API 进程）：
 
 ```bash
-python3 scripts/test_full_flow.py
+cd scripts && python3 -m pytest tests/ -v
+```
+
+测试覆盖：
+
+| 模块 | 覆盖内容 |
+|------|----------|
+| `test_0_auth` | 登录、token 刷新、权限矩阵 |
+| `test_1_questions` | 题目 CRUD、标签/难度标签列表、difficulty 筛选、日期范围筛选、文件替换、bundle |
+| `test_2_papers` | 试卷 CRUD、日期范围筛选、试卷 bundle、题目排序与渲染 |
+| `test_3_ops` | 导出、质量检查、数据库备份恢复、权限验证 |
+| `test_4_admin` | 软删除、恢复、垃圾回收 |
+
+如果已有运行中的 PostgreSQL 和 API 实例，可跳过自动基础设施启动：
+
+```bash
+QB_E2E_SKIP_INFRA=1 API_PORT=8080 POSTGRES_PORT=5432 python3 -m pytest tests/ -v
 ```
 
 ## 数据库格式

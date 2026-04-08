@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::questions::models::{validate_question_category, QuestionSummary};
 use crate::api::shared::{
     pagination::{normalize_limit, normalize_offset},
-    utils::{normalize_bundle_description, normalize_optional_bundle_description},
+    utils::{normalize_bundle_description, normalize_optional_bundle_description, validate_timestamp_param},
 };
 
 #[derive(Debug, Serialize)]
@@ -44,6 +44,10 @@ pub(crate) struct PapersParams {
     pub(crate) question_id: Option<String>,
     pub(crate) category: Option<String>,
     pub(crate) tag: Option<String>,
+    pub(crate) created_after: Option<String>,
+    pub(crate) created_before: Option<String>,
+    pub(crate) updated_after: Option<String>,
+    pub(crate) updated_before: Option<String>,
     pub(crate) q: Option<String>,
     pub(crate) limit: Option<i64>,
     pub(crate) offset: Option<i64>,
@@ -263,6 +267,18 @@ pub(crate) fn validate_paper_filters(params: &PapersParams) -> Result<()> {
         if q.trim().is_empty() {
             bail!("q must not be empty");
         }
+    }
+    if let Some(v) = &params.created_after {
+        validate_timestamp_param("created_after", v)?;
+    }
+    if let Some(v) = &params.created_before {
+        validate_timestamp_param("created_before", v)?;
+    }
+    if let Some(v) = &params.updated_after {
+        validate_timestamp_param("updated_after", v)?;
+    }
+    if let Some(v) = &params.updated_before {
+        validate_timestamp_param("updated_before", v)?;
     }
     Ok(())
 }

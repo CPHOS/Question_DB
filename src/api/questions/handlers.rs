@@ -11,12 +11,14 @@ use super::{
     imports::{import_question_zip, replace_question_zip, MAX_UPLOAD_BYTES},
     models::{
         CreateQuestionRequest, QuestionBundleRequest, QuestionDeleteResponse, QuestionDetail,
-        QuestionDifficulty, QuestionFileReplaceResponse, QuestionImportResponse, QuestionSummary,
-        QuestionTagsResponse, QuestionsParams, UpdateQuestionMetadataRequest,
+        QuestionDifficulty, QuestionDifficultyTagsResponse, QuestionFileReplaceResponse,
+        QuestionImportResponse, QuestionSummary, QuestionTagsResponse, QuestionsParams,
+        UpdateQuestionMetadataRequest,
     },
     queries::{
-        execute_questions_query, list_active_question_tags, load_question_difficulties_batch,
-        load_question_tags_batch, map_question_summary, validate_question_filters,
+        execute_questions_query, list_active_difficulty_tags, list_active_question_tags,
+        load_question_difficulties_batch, load_question_tags_batch, map_question_summary,
+        validate_question_filters,
     },
 };
 use crate::api::{
@@ -86,6 +88,16 @@ pub(crate) async fn list_question_tags(
         .context("list question tags failed")
         .map_err(ApiError::from)?;
     Ok(Json(QuestionTagsResponse { tags }))
+}
+
+pub(crate) async fn list_difficulty_tags(
+    State(state): State<AppState>,
+) -> ApiResult<QuestionDifficultyTagsResponse> {
+    let difficulty_tags = list_active_difficulty_tags(&state.pool)
+        .await
+        .context("list difficulty tags failed")
+        .map_err(ApiError::from)?;
+    Ok(Json(QuestionDifficultyTagsResponse { difficulty_tags }))
 }
 
 pub(crate) async fn get_question_detail(

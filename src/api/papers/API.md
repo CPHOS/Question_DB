@@ -69,6 +69,10 @@
 | `category` | `"none"` \| `"T"` \| `"E"` | — | 按包含题目的分类过滤 |
 | `tag` | string | — | 按包含题目的标签过滤 |
 | `q` | string | — | 关键词，匹配 `description`、`title`、`subtitle` |
+| `created_after` | string(ISO 8601) | — | 创建时间下限（含），如 `2026-01-01` 或 `2026-01-01T00:00:00Z` |
+| `created_before` | string(ISO 8601) | — | 创建时间上限（含） |
+| `updated_after` | string(ISO 8601) | — | 更新时间下限（含） |
+| `updated_before` | string(ISO 8601) | — | 更新时间上限（含） |
 | `limit` | int | `20` | 每页数量，范围 1-100 |
 | `offset` | int | `0` | 偏移量 |
 

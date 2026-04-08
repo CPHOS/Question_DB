@@ -268,11 +268,66 @@ def test_filter_questions(api, state):
         [],
     )
 
+    # Date range filters
+    # created_after far future → no results
+    assert_question_query(
+        api,
+        "/questions?created_after=2099-01-01",
+        [],
+    )
+    # created_before far future → all results
+    assert_question_query(
+        api,
+        "/questions?created_before=2099-12-31",
+        list(qs.values()),
+    )
+    # created_after very old → all results
+    assert_question_query(
+        api,
+        "/questions?created_after=2000-01-01",
+        list(qs.values()),
+    )
+    # updated_after far future → no results
+    assert_question_query(
+        api,
+        "/questions?updated_after=2099-01-01T00:00:00Z",
+        [],
+    )
+    # updated_before far future → all results
+    assert_question_query(
+        api,
+        "/questions?updated_before=2099-12-31T23:59:59Z",
+        list(qs.values()),
+    )
+    # Combined: created_after old + created_before future → all
+    assert_question_query(
+        api,
+        "/questions?created_after=2000-01-01&created_before=2099-12-31",
+        list(qs.values()),
+    )
+    # Invalid date format → 400
+    api.get("/questions?created_after=not-a-date", expect=400)
+    api.get("/questions?updated_before=abc", expect=400)
+
 
 def test_list_question_tags(api, state):
     """List active question tags for frontend autocomplete."""
     tags = parse_json(api.get("/questions/tags")[1])["tags"]
     assert tags == ["kinematics", "lenses", "mechanics", "optics"]
+
+
+def test_list_difficulty_tags(api, state):
+    """List active difficulty tags for frontend dropdown selection."""
+    resp = parse_json(api.get("/questions/difficulty-tags")[1])
+    dtags = resp["difficulty_tags"]
+    # After patching, the synthetic questions use: human, heuristic, ml, symbolic, simulator
+    assert "human" in dtags, "human must always be present"
+    assert "heuristic" in dtags
+    assert "ml" in dtags
+    assert "symbolic" in dtags
+    assert "simulator" in dtags
+    # Should be sorted alphabetically
+    assert dtags == sorted(dtags)
 
 
 def test_question_detail(api, state):

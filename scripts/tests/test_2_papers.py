@@ -212,6 +212,37 @@ def _run_paper_flow(
     )
     assert paper_b_id in body
 
+    # Date range filters
+    # created_after far future → no papers
+    items_future = parse_json(
+        api.get("/papers?created_after=2099-01-01")[1]
+    )["items"]
+    assert not any(i["paper_id"] in paper_ids for i in items_future)
+
+    # created_before far future → both papers present
+    items_past = parse_json(
+        api.get("/papers?created_before=2099-12-31")[1]
+    )["items"]
+    found_ids = {i["paper_id"] for i in items_past}
+    assert paper_a_id in found_ids and paper_b_id in found_ids
+
+    # updated_after far future → no papers
+    items_upd = parse_json(
+        api.get("/papers?updated_after=2099-01-01T00:00:00Z")[1]
+    )["items"]
+    assert not any(i["paper_id"] in paper_ids for i in items_upd)
+
+    # updated_before far future → both present
+    items_upd2 = parse_json(
+        api.get("/papers?updated_before=2099-12-31T23:59:59Z")[1]
+    )["items"]
+    found_ids2 = {i["paper_id"] for i in items_upd2}
+    assert paper_a_id in found_ids2 and paper_b_id in found_ids2
+
+    # Invalid date → 400
+    api.get("/papers?created_after=not-a-date", expect=400)
+    api.get("/papers?updated_before=xyz", expect=400)
+
     # ── Detail ───────────────────────────────────────────────
     detail = parse_json(api.get(f"/papers/{paper_a_id}")[1])
     assert [q["question_id"] for q in detail["questions"]] == first_n
