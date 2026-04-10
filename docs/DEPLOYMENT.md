@@ -201,3 +201,23 @@ docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
 - 由于容器启动时会自动执行 migration，如果未来要扩成多副本，建议把 migration 拆成独立 Job 或手动步骤
 - 对外提供服务时，建议在前面加 Nginx、Traefik 或云负载均衡，统一处理 HTTPS 和域名
 - 如果只允许前端域名访问 API，请把 `QB_CORS_ORIGINS` 配成明确的生产域名列表
+
+## 9. 迁移说明
+
+### `0002_role_system.sql` — 5 角色权限系统
+
+该迁移将旧的 3 角色体系（viewer / editor / admin）升级为 5 角色体系（viewer / user / leader / bot / admin）。容器启动时会自动执行 `migrations/*.sql`，无需手动操作。
+
+**迁移内容**：
+
+1. 扩展 `users.role` 约束为 5 个值，现有 `editor` 自动迁移为 `user`
+2. 新增 `users.leader_expires_at` 列（Leader 角色过期时间）
+3. 新增 `questions.created_by` 和 `papers.created_by` 列（所有权追踪）
+4. 新增 `question_difficulties.created_by` / `updated_by` 列（难度标签编辑追踪）
+5. 创建 `question_reviews` 表（审阅人分配）
+
+**注意事项**：
+
+- 迁移后，旧的 `editor` 角色用户会自动变为 `user` 角色
+- 历史数据的 `created_by` 字段为 `NULL`，不影响功能
+- 如果使用备份恢复，确保备份文件是迁移后的版本，否则需重新执行迁移

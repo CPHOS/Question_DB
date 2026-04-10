@@ -200,14 +200,16 @@
 | `username` | string | ✅ | — | 用户名，trim 后非空，唯一 |
 | `password` | string | ✅ | — | 密码，长度 ≥ 6 |
 | `display_name` | string | — | `""` | 显示名 |
-| `role` | `"viewer"` \| `"editor"` \| `"admin"` | — | `"viewer"` | 角色 |
+| `role` | `"viewer"` \| `"user"` \| `"leader"` \| `"bot"` \| `"admin"` | — | `"viewer"` | 角色 |
+| `leader_expires_at` | string(RFC 3339) | 条件必填 | — | Leader 角色过期时间；角色为 `leader` 时必填 |
 
 ```json
 {
   "username": "alice",
   "password": "secure-password",
   "display_name": "Alice",
-  "role": "editor"
+  "role": "leader",
+  "leader_expires_at": "2026-12-31T23:59:59Z"
 }
 ```
 
@@ -217,7 +219,7 @@
 
 | 状态码 | 场景 |
 |---|---|
-| `400` | 参数校验失败 |
+| `400` | 参数校验失败 / leader 角色未提供 leader_expires_at |
 | `409` | 用户名已存在 |
 
 ---
@@ -235,17 +237,22 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `display_name` | string | 显示名 |
-| `role` | `"viewer"` \| `"editor"` \| `"admin"` | 角色 |
+| `role` | `"viewer"` \| `"user"` \| `"leader"` \| `"bot"` \| `"admin"` | 角色 |
 | `is_active` | boolean | 是否启用 |
+| `leader_expires_at` | string(RFC 3339) \| null | Leader 角色过期时间；设为 null 清除过期时间；设置 role 为 leader 时必须确保该字段有值 |
 
 ```json
 {
-  "role": "admin",
+  "role": "leader",
+  "leader_expires_at": "2026-12-31T23:59:59Z",
   "is_active": true
 }
 ```
 
-**特殊约束**：不允许管理员将自己设为 `is_active=false`。
+**特殊约束**：
+
+- 不允许管理员将自己设为 `is_active=false`
+- 设置 `role` 为 `leader` 时，必须在当次请求或用户已有记录中提供 `leader_expires_at`
 
 **成功响应** `200`：更新后的 `UserProfile`。
 
@@ -253,7 +260,7 @@
 
 | 状态码 | 场景 |
 |---|---|
-| `400` | 无可更新字段 / 角色值无效 / 尝试停用自己 |
+| `400` | 无可更新字段 / 角色值无效 / 尝试停用自己 / leader 角色未提供 leader_expires_at |
 | `404` | 用户不存在 |
 
 ---

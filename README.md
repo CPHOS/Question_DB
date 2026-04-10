@@ -57,16 +57,20 @@ src/
 
 - `objects`
   单表保存任意上传文件的元数据与二进制内容。
+- `users`
+  用户表，含 `role`（viewer / user / leader / bot / admin）、`leader_expires_at` 等字段。
 - `questions`
-  保存题目固定 metadata，以及软删除字段 `deleted_at` / `deleted_by`。
+  保存题目固定 metadata，以及软删除字段 `deleted_at` / `deleted_by` 和 `created_by`（创建者）。
 - `question_files`
   保存题目的 TeX 文件和资源文件引用。
 - `question_tags`
   保存题目标签列表。
 - `question_difficulties`
-  保存每个 difficulty tag 的 `score` / `notes`。
+  保存每个 difficulty tag 的 `score` / `notes`，以及 `created_by` / `updated_by`（追踪编辑者）。
+- `question_reviews`
+  审阅人分配表，记录哪些 user 被分配为某题目的审阅人。
 - `papers`
-  保存试卷固定元数据，以及软删除字段 `deleted_at` / `deleted_by`。
+  保存试卷固定元数据，以及软删除字段 `deleted_at` / `deleted_by` 和 `created_by`（创建者）。
 - `paper_questions`
   保存试卷和题目的有序关联。
 
@@ -261,6 +265,9 @@ curl -X POST http://127.0.0.1:8080/papers \
 - `GET /questions/tags`
 - `GET /questions/difficulty-tags`
 - `GET /questions/{question_id}`
+- `GET /questions/{question_id}/reviewers`
+- `POST /questions/{question_id}/reviewers`
+- `DELETE /questions/{question_id}/reviewers/{reviewer_id}`
 - `POST /questions/bundles`
 - `GET /admin/questions`
 - `GET /admin/questions/{question_id}`
@@ -305,6 +312,20 @@ curl -X POST http://127.0.0.1:8080/papers \
 - 管理员查询、恢复和垃圾回收见 [Admin API](./src/api/admin/API.md)
 - `POST /exports/run` 只导出未软删除题目
 - `POST /quality-checks/run` 只检查未软删除题目和试卷
+
+## 角色与权限
+
+系统采用 5 级角色体系，基于能力而非线性层级：
+
+| 角色 | 说明 |
+|---|---|
+| `viewer` | 只读 + bundle 下载 |
+| `user` | 可上传题目，编辑自己创建的题目，可被分配为审阅人 |
+| `leader` | 可创建/编辑/删除题目和试卷（非 used），可分配审阅人；有过期时间，过期后降级为 user |
+| `bot` | 同 leader 权限，无过期时间，用于自动化程序 |
+| `admin` | 全部权限 + ops + 用户管理 + 垃圾回收 |
+
+Leader 角色在创建时必须指定 `leader_expires_at` 过期时间。JWT 中间件会在每次请求时检查过期时间，过期后自动将角色降级为 `user`。
 
 ## 启动
 
@@ -358,9 +379,9 @@ cd scripts && python3 -m pytest tests/ -v
 
 | 模块 | 覆盖内容 |
 |------|----------|
-| `test_0_auth` | 登录、token 刷新、权限矩阵 |
-| `test_1_questions` | 题目 CRUD、标签/难度标签列表、difficulty 筛选、日期范围筛选、文件替换、bundle |
-| `test_2_papers` | 试卷 CRUD、日期范围筛选、试卷 bundle、题目排序与渲染 |
+| `test_0_auth` | 登录、token 刷新、权限矩阵、5 角色权限检查、leader 过期降级 |
+| `test_1_questions` | 题目 CRUD、标签/难度标签列表、difficulty 筛选、日期范围筛选、文件替换、bundle、审阅人管理 |
+| `test_2_papers` | 试卷 CRUD、日期范围筛选、试卷 bundle、题目排序与渲染、所有权校验 |
 | `test_3_ops` | 导出、质量检查、数据库备份恢复、权限验证 |
 | `test_4_admin` | 软删除、恢复、垃圾回收 |
 
@@ -372,4 +393,4 @@ QB_E2E_SKIP_INFRA=1 API_PORT=8080 POSTGRES_PORT=5432 python3 -m pytest tests/ -v
 
 ## 数据库格式
 
-表结构定义在 [0001_init_pg.sql](./migrations/0001_init_pg.sql)。
+表结构定义在 [0001_init_pg.sql](./migrations/0001_init_pg.sql)。5 角色权限系统和所有权追踪的迁移在 [0002_role_system.sql](./migrations/0002_role_system.sql)。

@@ -1,10 +1,24 @@
 # Questions API
 
-> 题目的增删改查、文件替换和批量打包接口。
+> 题目的增删改查、文件替换、审阅人管理和批量打包接口。
 
-- **`GET` 操作和 `POST /questions/bundles`**：需要 `viewer` 及以上角色
-- **其余写操作（`POST / PATCH / DELETE / PUT`）**：需要 `editor` 及以上角色
+- **`GET` 操作和 `POST /questions/bundles`**：需要任意已认证角色（`viewer` 及以上）
+- **`POST /questions`（上传）**：需要 `user` / `leader` / `bot` / `admin`
+- **`PATCH /questions/:id`（更新）**：权限分级，详见各端点说明
+- **`PUT /questions/:id/file`（替换文件）**：需要 Full 访问权限（owner / leader / bot / admin）
+- **`DELETE /questions/:id`**：需要 `leader` / `bot` / `admin`
+- **审阅人管理**：需要 `leader` / `bot` / `admin`
 - 所有请求需携带 `Authorization: Bearer <access_token>` 头
+
+### 权限模型
+
+题目操作使用三级访问控制：
+
+| 访问等级 | 条件 | 允许操作 |
+|---|---|---|
+| **Full** | admin；leader/bot（题目非 `used`）；user 且为 owner | 所有字段更新、文件替换 |
+| **ReviewerOnly** | user 且被分配为审阅人 | 仅更新 difficulty tags（合并模式） |
+| **None** | viewer；user 且非 owner 非审阅人 | 只读 |
 
 ---
 
@@ -24,10 +38,12 @@
   "reviewers": ["李四"],
   "tags": ["optics", "thermodynamics"],
   "difficulty": {
-    "human": { "score": 7, "notes": "较难" }
+    "human": { "score": 7, "notes": "较难", "updated_by": { "user_id": "uuid", "username": "alice", "display_name": "Alice" } }
   },
+  "created_by": "uuid or null",
   "created_at": "2026-01-01T00:00:00.000Z",
-  "updated_at": "2026-01-01T00:00:00.000Z"
+  "updated_at": "2026-01-01T00:00:00.000Z",
+  "allow_auto_reviewer": false
 }
 ```
 
@@ -42,9 +58,38 @@
 | `author` | string | 命题人 |
 | `reviewers` | string[] | 审题人列表 |
 | `tags` | string[] | 标签列表 |
-| `difficulty` | object | 难度评估，key 为 tag（如 `human`），value 含 `score`(1-10) 和可选 `notes` |
+| `difficulty` | object | 难度评估，key 为 tag（如 `human`），value 含 `score`(1-10)、可选 `notes` 和可选 `updated_by`（编辑者信息） |
+| `allow_auto_reviewer` | boolean | 是否允许审阅人在保存审阅编辑时自动将姓名添加到审题人列表，默认 `false` |
+| `created_by` | string(UUID) \| null | 创建者的 user_id，历史数据可能为 null |
 | `created_at` | string(ISO 8601) | 创建时间 |
 | `updated_at` | string(ISO 8601) | 更新时间 |
+
+### `DifficultyValue`
+
+每个难度标签的值对象：
+
+```json
+{
+  "score": 7,
+  "notes": "较难",
+  "updated_by": {
+    "user_id": "uuid",
+    "username": "alice",
+    "display_name": "Alice"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `score` | int (1-10) | 难度分数 |
+| `notes` | string \| null | 难度备注，可选 |
+| `updated_by` | object \| null | 最后编辑此难度标签的用户信息，只读，历史数据可能为 null |
+| `updated_by.user_id` | string(UUID) | 编辑者 ID |
+| `updated_by.username` | string | 编辑者用户名 |
+| `updated_by.display_name` | string | 编辑者显示名 |
+
+> **注意**：`updated_by` 为只读字段，由服务端自动填充。创建/更新难度时请勿传入此字段，否则返回 `400`。
 
 ### `QuestionDetail`
 
@@ -121,6 +166,8 @@
 | `paper_id` | UUID | — | 按所属试卷过滤 |
 | `category` | `"none"` \| `"T"` \| `"E"` | — | 按分类过滤 |
 | `tag` | string | — | 按标签过滤 |
+| `reviewer` | string | — | 按审核人过滤，精确匹配 `reviewers` 数组中的某一项 |
+| `assigned_reviewer_id` | UUID | — | 按审阅人管理中分配的 reviewer_id（UUID）过滤 |
 | `score_min` | int (≥0) | — | 分值下限 |
 | `score_max` | int (≥0) | — | 分值上限 |
 | `difficulty_tag` | string | — | 难度 tag，如 `human` |
@@ -178,7 +225,7 @@
 
 上传新题目（zip 包）。
 
-- **认证**：`editor` 及以上
+- **认证**：`user` / `leader` / `bot` / `admin`（即 `can_upload_question` 能力）
 - **Content-Type**：`multipart/form-data`
 - **大小限制**：zip 文件 ≤ 20 MiB
 
@@ -241,7 +288,9 @@ curl -X POST http://127.0.0.1:8080/questions \
 
 部分更新题目元数据。
 
-- **认证**：`editor` 及以上
+- **认证**：需已认证；根据访问等级决定可更新字段
+  - **Full 访问**（admin / leader / bot（非 used）/ owner）：可更新所有字段，`difficulty` 为整体替换
+  - **ReviewerOnly 访问**（被分配的审阅人）：仅可更新 `difficulty`（合并模式）和 `delete_difficulty_tags`
 - **Content-Type**：`application/json`
 - **路径参数**：`question_id` — UUID
 - **说明**：至少提供一个字段；已软删除题目返回 `404`；使用行锁保证并发安全
@@ -250,13 +299,22 @@ curl -X POST http://127.0.0.1:8080/questions \
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `category` | `"none"` \| `"T"` \| `"E"` | 分类 |
-| `description` | string | 题目描述（不能为 null 或空串），需满足文件名安全规则 |
-| `tags` | string[] | 标签列表，整体替换；空数组 `[]` 表示清空 |
-| `status` | `"none"` \| `"reviewed"` \| `"used"` | 状态 |
-| `difficulty` | object | 整体替换难度评估；必须至少含 `human`；score 1-10；`notes` 若为空串会规范化为 null |
-| `author` | string | 命题人 |
-| `reviewers` | string[] | 审题人列表，会去重 |
+| `category` | `"none"` \| `"T"` \| `"E"` | 分类（ReviewerOnly 不可用） |
+| `description` | string | 题目描述（不能为 null 或空串），需满足文件名安全规则（ReviewerOnly 不可用） |
+| `tags` | string[] | 标签列表，整体替换；空数组 `[]` 表示清空（ReviewerOnly 不可用） |
+| `status` | `"none"` \| `"reviewed"` \| `"used"` | 状态（ReviewerOnly 不可用） |
+| `difficulty` | object | Full：整体替换难度评估，必须至少含 `human`，score 1-10。ReviewerOnly：合并模式，只能修改自己创建的 tag 或作为最后编辑者的 `human` tag，可新增 tag（无需含 `human`） |
+| `delete_difficulty_tags` | string[] | 要删除的难度标签列表；不能包含 `human`。ReviewerOnly 只能删除自己创建的 tag |
+| `author` | string | 命题人（ReviewerOnly 不可用） |
+| `reviewers` | string[] | 审题人列表，会去重（ReviewerOnly 不可用） |
+| `allow_auto_reviewer` | boolean | 是否允许自动添加审阅人到审题人列表（仅 Full 访问可设置，ReviewerOnly 不可用） |
+
+**审阅人合并模式说明**：
+
+- 审阅人提交 `difficulty` 时，不会替换其他人的标签，仅更新/新增自己有权限的标签
+- 可修改的标签：自己创建的标签，或 `human` 标签（如果自己是最后编辑者）
+- 新增的标签会记录 `created_by` 和 `updated_by` 为当前用户
+- 删除标签时同样仅允许删除自己创建的标签
 
 ```json
 {
@@ -264,7 +322,8 @@ curl -X POST http://127.0.0.1:8080/questions \
   "tags": ["optics"],
   "difficulty": {
     "human": { "score": 8 }
-  }
+  },
+  "delete_difficulty_tags": ["obsolete_algo"]
 }
 ```
 
@@ -275,6 +334,7 @@ curl -X POST http://127.0.0.1:8080/questions \
 | 状态码 | 场景 |
 |---|---|
 | `400` | 无可更新字段 / 参数校验失败 / 未知字段 |
+| `403` | 无编辑权限 / 审阅人尝试修改不允许的字段或标签 |
 | `404` | 题目不存在或已软删除 |
 
 ---
@@ -283,7 +343,7 @@ curl -X POST http://127.0.0.1:8080/questions \
 
 替换题目的 zip 文件内容（tex 和 assets），不修改元数据。
 
-- **认证**：`editor` 及以上
+- **认证**：需 Full 访问权限（admin / leader / bot（非 used）/ owner）
 - **Content-Type**：`multipart/form-data`
 - **路径参数**：`question_id` — UUID
 - **大小限制**：zip 文件 ≤ 20 MiB
@@ -323,7 +383,7 @@ curl -X POST http://127.0.0.1:8080/questions \
 
 软删除题目。
 
-- **认证**：`editor` 及以上
+- **认证**：`leader` / `bot` / `admin`
 - **路径参数**：`question_id` — UUID
 
 **行为**：
@@ -332,6 +392,7 @@ curl -X POST http://127.0.0.1:8080/questions \
 - 不会立刻删除文件对象，由管理员垃圾回收处理
 - 已软删除题目重复删除返回 `404`
 - 若题目仍被未软删除试卷引用，返回 `409`
+- `leader`/`bot` 不能删除 `status=used` 的题目，`admin` 可以
 
 **成功响应** `200`：
 
@@ -395,3 +456,84 @@ manifest.json
 |---|---|
 | `400` | 列表为空 / 含空值 / 含无效 UUID / 有重复 |
 | `404` | 有题目不存在或已软删除 |
+
+---
+
+## 审阅人管理
+
+### `GET /questions/:question_id/reviewers`
+
+获取题目的审阅人列表。
+
+- **认证**：任意已认证角色
+- **路径参数**：`question_id` — UUID
+
+**成功响应** `200`：
+
+```json
+{
+  "reviewers": [
+    {
+      "reviewer_id": "uuid",
+      "username": "alice",
+      "display_name": "Alice",
+      "assigned_by": "uuid",
+      "created_at": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### `POST /questions/:question_id/reviewers`
+
+分配审阅人到题目。
+
+- **认证**：`leader` / `bot` / `admin`
+- **路径参数**：`question_id` — UUID
+- **Content-Type**：`application/json`
+
+**请求体**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `reviewer_id` | string(UUID) | ✅ | 要分配的用户 ID，必须是 `user` 角色且账号启用 |
+
+```json
+{
+  "reviewer_id": "uuid"
+}
+```
+
+**行为**：
+
+- 重复分配同一审阅人不会报错（幂等）
+- 只有 `user` 角色的用户可以被分配为审阅人
+
+**成功响应** `200`：更新后的审阅人列表（格式同 GET）。
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | reviewer 账号已停用 / reviewer 角色不是 `user` |
+| `403` | 当前用户不是 leader/bot/admin |
+| `404` | 题目不存在 / reviewer 用户不存在 |
+
+---
+
+### `DELETE /questions/:question_id/reviewers/:reviewer_id`
+
+移除题目的审阅人。
+
+- **认证**：`leader` / `bot` / `admin`
+- **路径参数**：`question_id` — UUID，`reviewer_id` — UUID
+
+**成功响应** `200`：更新后的审阅人列表（格式同 GET）。
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `403` | 当前用户不是 leader/bot/admin |

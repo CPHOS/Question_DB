@@ -52,6 +52,8 @@ pub(crate) async fn load_question_detail(
                q.score,
                q.author,
                q.reviewers,
+               q.created_by::text AS created_by,
+               q.allow_auto_reviewer,
                to_char(q.created_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS created_at,
                to_char(q.updated_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS updated_at,
                to_char(q.deleted_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS deleted_at,
@@ -121,6 +123,7 @@ pub(crate) async fn load_paper_detail(
     let paper_row = query(&format!(
         r#"
         SELECT p.paper_id::text AS paper_id, p.description, p.title, p.subtitle,
+               p.created_by::text AS created_by,
                to_char(p.created_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS created_at,
                to_char(p.updated_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS updated_at,
                to_char(p.deleted_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS deleted_at,
@@ -147,6 +150,8 @@ pub(crate) async fn load_paper_detail(
                q.score,
                q.author,
                q.reviewers,
+               q.created_by::text AS created_by,
+               q.allow_auto_reviewer,
                to_char(q.created_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS created_at,
                to_char(q.updated_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS updated_at
         FROM paper_questions pq

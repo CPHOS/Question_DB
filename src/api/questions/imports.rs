@@ -43,6 +43,7 @@ pub(crate) async fn import_question_zip(
     file_name: Option<&str>,
     request: &NormalizedCreateQuestionRequest,
     zip_bytes: Vec<u8>,
+    created_by: &str,
 ) -> Result<QuestionImportResponse> {
     if zip_bytes.is_empty() {
         return Err(ValidationError("uploaded file is empty".into()).into());
@@ -61,10 +62,10 @@ pub(crate) async fn import_question_zip(
     query(
         r#"
         INSERT INTO questions (
-            question_id, source_tex_path, category, status, description, score, author, reviewers, created_at, updated_at
+            question_id, source_tex_path, category, status, description, score, author, reviewers, created_by, created_at, updated_at
         )
         VALUES (
-            $1::uuid, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW()
+            $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::uuid, NOW(), NOW()
         )
         "#,
     )
@@ -76,13 +77,14 @@ pub(crate) async fn import_question_zip(
     .bind(loaded.score)
     .bind(&request.author)
     .bind(&request.reviewers)
+    .bind(created_by)
     .execute(&mut *tx)
     .await
     .context("insert uploaded question failed")?;
 
     insert_loaded_question_files_tx(&mut tx, &question_id, &loaded).await?;
     insert_question_tags_tx(&mut tx, &question_id, &request.tags).await?;
-    insert_question_difficulties_tx(&mut tx, &question_id, &request.difficulty).await?;
+    insert_question_difficulties_tx(&mut tx, &question_id, &request.difficulty, created_by).await?;
 
     tx.commit().await.context("commit question import failed")?;
 
@@ -401,15 +403,17 @@ async fn insert_question_difficulties_tx(
     tx: &mut Transaction<'_, Postgres>,
     question_id: &str,
     difficulty: &NormalizedQuestionDifficulty,
+    created_by: &str,
 ) -> Result<()> {
     for (algorithm_tag, value) in difficulty {
         query(
-            "INSERT INTO question_difficulties (question_id, algorithm_tag, score, notes) VALUES ($1::uuid, $2, $3, $4)",
+            "INSERT INTO question_difficulties (question_id, algorithm_tag, score, notes, created_by, updated_by) VALUES ($1::uuid, $2, $3, $4, $5::uuid, $5::uuid)",
         )
         .bind(question_id)
         .bind(algorithm_tag)
         .bind(value.score)
         .bind(value.notes.as_deref())
+        .bind(created_by)
         .execute(&mut **tx)
         .await
         .with_context(|| format!("insert question difficulty failed: {algorithm_tag}"))?;

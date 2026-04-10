@@ -181,8 +181,21 @@ pub(crate) async fn create_user(
     let role_str = req.role.as_deref().unwrap_or("viewer");
     if Role::from_str(role_str).is_none() {
         return Err(ApiError::bad_request(
-            "role must be one of: viewer, editor, admin",
+            "role must be one of: viewer, user, leader, bot, admin",
         ));
+    }
+
+    // Parse leader_expires_at if provided (required for leader role).
+    let leader_expires_at = if let Some(ref expires_str) = req.leader_expires_at {
+        let dt = chrono::DateTime::parse_from_rfc3339(expires_str)
+            .map_err(|_| ApiError::bad_request("leader_expires_at must be a valid RFC 3339 timestamp"))?;
+        Some(dt.with_timezone(&chrono::Utc))
+    } else {
+        None
+    };
+
+    if role_str == "leader" && leader_expires_at.is_none() {
+        return Err(ApiError::bad_request("leader_expires_at is required when creating a leader"));
     }
 
     let display_name = req.display_name.as_deref().unwrap_or("");
@@ -190,7 +203,7 @@ pub(crate) async fn create_user(
         hash_password(&req.password).map_err(|_| ApiError::internal("password hash error"))?;
 
     let profile =
-        auth_queries::create_user(&state.pool, username, display_name, &pw_hash, role_str)
+        auth_queries::create_user(&state.pool, username, display_name, &pw_hash, role_str, leader_expires_at)
             .await
             .map_err(ApiError::from)?;
 
@@ -213,8 +226,43 @@ pub(crate) async fn update_user(
     if let Some(role_str) = &req.role {
         if Role::from_str(role_str).is_none() {
             return Err(ApiError::bad_request(
-                "role must be one of: viewer, editor, admin",
+                "role must be one of: viewer, user, leader, bot, admin",
             ));
+        }
+    }
+
+    // Parse leader_expires_at if provided.
+    let leader_expires_at: Option<Option<chrono::DateTime<chrono::Utc>>> =
+        if let Some(ref outer) = req.leader_expires_at {
+            if let Some(ref expires_str) = outer {
+                let dt = chrono::DateTime::parse_from_rfc3339(expires_str)
+                    .map_err(|_| ApiError::bad_request("leader_expires_at must be a valid RFC 3339 timestamp"))?;
+                Some(Some(dt.with_timezone(&chrono::Utc)))
+            } else {
+                Some(None) // explicitly set to null
+            }
+        } else {
+            None // not provided — don't change
+        };
+
+    // If setting role to leader, require leader_expires_at.
+    if req.role.as_deref() == Some("leader") {
+        // Must either provide leader_expires_at in this request, or it must already be set.
+        let will_have_expiry = match &leader_expires_at {
+            Some(Some(_)) => true,
+            _ => false,
+        };
+        if !will_have_expiry {
+            // Check if user already has leader_expires_at set.
+            let existing = auth_queries::find_user_by_id(&state.pool, &user_id)
+                .await
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError::not_found("user not found"))?;
+            if existing.leader_expires_at.is_none() {
+                return Err(ApiError::bad_request(
+                    "leader_expires_at is required when setting role to leader",
+                ));
+            }
         }
     }
 
@@ -224,6 +272,7 @@ pub(crate) async fn update_user(
         req.display_name.as_deref(),
         req.role.as_deref(),
         req.is_active,
+        leader_expires_at,
     )
     .await
     .map_err(ApiError::from)?;

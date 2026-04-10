@@ -18,6 +18,7 @@ pub(crate) async fn import_paper_zip(
     file_name: Option<&str>,
     request: &NormalizedCreatePaperRequest,
     zip_bytes: Vec<u8>,
+    created_by: &str,
 ) -> Result<PaperImportResponse> {
     let paper_id = Uuid::new_v4().to_string();
     let normalized_file_name = normalize_optional_paper_file_name(file_name, &zip_bytes)?;
@@ -32,9 +33,9 @@ pub(crate) async fn import_paper_zip(
         r#"
         INSERT INTO papers (
             paper_id, description, title, subtitle,
-            append_object_id, created_at, updated_at
+            append_object_id, created_by, created_at, updated_at
         )
-        VALUES ($1::uuid, $2, $3, $4, $5::uuid, NOW(), NOW())
+        VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6::uuid, NOW(), NOW())
         "#,
     )
     .bind(&paper_id)
@@ -42,6 +43,7 @@ pub(crate) async fn import_paper_zip(
     .bind(&request.title)
     .bind(&request.subtitle)
     .bind(append_object_id.as_deref())
+    .bind(created_by)
     .execute(&mut *tx)
     .await
     .context("insert paper failed")?;

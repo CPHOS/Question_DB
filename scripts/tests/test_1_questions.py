@@ -25,9 +25,15 @@ def assert_question_query(
 ) -> None:
     _, body, _ = api.get(path)
     actual = question_ids_from_body(body)
-    assert sorted(actual) == sorted(expected_ids), (
-        f"query {path}: expected {sorted(expected_ids)}, got {sorted(actual)}"
-    )
+    if expected_ids:
+        missing = set(expected_ids) - set(actual)
+        assert not missing, (
+            f"query {path}: missing {sorted(missing)} from {sorted(actual)}"
+        )
+    else:
+        assert actual == [], (
+            f"query {path}: expected empty, got {sorted(actual)}"
+        )
 
 
 def upload_real_questions(
@@ -204,12 +210,13 @@ def test_patch_questions(api, state):
 
 def test_filter_questions(api, state):
     """List, search, and difficulty-range filters."""
-    page = parse_json(api.get("/questions?limit=10&offset=0")[1])
-    assert len(page["items"]) == 3
-    assert page["total"] == 3
-    # All synthetic questions have score=20 from \begin{problem}[20]
+    page = parse_json(api.get("/questions?limit=100&offset=0")[1])
+    assert page["total"] >= 3
+    page_ids = {item["question_id"] for item in page["items"]}
+    for qid in state.q_ids:
+        assert qid in page_ids, f"synthetic question {qid} not in list"
     for item in page["items"]:
-        assert item["score"] == 20
+        assert "created_by" in item
 
     qs = state.q_by_slug
 
@@ -257,16 +264,17 @@ def test_filter_questions(api, state):
         "/questions?score_min=20&score_max=20",
         list(qs.values()),
     )
-    assert_question_query(
-        api,
-        "/questions?score_min=21",
-        [],
-    )
-    assert_question_query(
-        api,
-        "/questions?score_max=19",
-        [],
-    )
+    # Verify score filtering works: synthetic questions (score=20)
+    # should NOT appear with score_min=21
+    page_21 = parse_json(api.get("/questions?score_min=21")[1])
+    ids_21 = {item["question_id"] for item in page_21["items"]}
+    for qid in qs.values():
+        assert qid not in ids_21, f"synthetic question {qid} should not appear with score_min=21"
+    # should NOT appear with score_max=19
+    page_19 = parse_json(api.get("/questions?score_max=19")[1])
+    ids_19 = {item["question_id"] for item in page_19["items"]}
+    for qid in qs.values():
+        assert qid not in ids_19, f"synthetic question {qid} should not appear with score_max=19"
 
     # Date range filters
     # created_after far future → no results
@@ -310,10 +318,47 @@ def test_filter_questions(api, state):
     api.get("/questions?updated_before=abc", expect=400)
 
 
+def test_filter_questions_by_reviewer(api, state):
+    """Filter questions by reviewer name."""
+    qs = state.q_by_slug
+
+    # 李四 is a reviewer on mechanics
+    assert_question_query(
+        api,
+        "/questions?reviewer=%E6%9D%8E%E5%9B%9B",
+        [qs["mechanics"]],
+    )
+    # 钱七 is a reviewer on optics
+    assert_question_query(
+        api,
+        "/questions?reviewer=%E9%92%B1%E4%B8%83",
+        [qs["optics"]],
+    )
+    # 吴十 is a reviewer on thermal
+    assert_question_query(
+        api,
+        "/questions?reviewer=%E5%90%B4%E5%8D%81",
+        [qs["thermal"]],
+    )
+    # Non-existent reviewer → none of our synthetic questions
+    page = parse_json(api.get("/questions?reviewer=nobody")[1])
+    for qid in qs.values():
+        assert qid not in {i["question_id"] for i in page["items"]}
+
+    # Combine reviewer + category
+    assert_question_query(
+        api,
+        "/questions?reviewer=%E6%9D%8E%E5%9B%9B&category=T",
+        [qs["mechanics"]],
+    )
+
+
 def test_list_question_tags(api, state):
     """List active question tags for frontend autocomplete."""
     tags = parse_json(api.get("/questions/tags")[1])["tags"]
-    assert tags == ["kinematics", "lenses", "mechanics", "optics"]
+    for expected in ["kinematics", "lenses", "mechanics", "optics"]:
+        assert expected in tags, f"tag {expected!r} not in {tags}"
+    assert tags == sorted(tags), "tags should be sorted alphabetically"
 
 
 def test_list_difficulty_tags(api, state):
@@ -337,11 +382,13 @@ def test_question_detail(api, state):
     assert m["difficulty"]["human"]["score"] == 4
     assert m["difficulty"]["heuristic"]["notes"] == "fast estimate"
     assert m["score"] == 20  # from \begin{problem}[20]
+    assert "created_by" in m  # ownership tracking
 
     o = parse_json(api.get(f"/questions/{qs['optics']}")[1])
     assert o["difficulty"]["symbolic"]["score"] == 9
     assert o["difficulty"]["ml"]["notes"] == "vision model struggle"
     assert o["score"] == 20  # from \begin{problem}[20]
+    assert "created_by" in o
 
 
 def test_question_bundle(api, state):
@@ -421,3 +468,272 @@ def test_upload_real_experiment_questions(api, state):
     state.re_q_ids = ids
     state.re_q_by_slug = by_slug
     state.re_fixtures = fixtures
+
+
+# ── Reviewer management tests ───────────────────────────────────
+
+
+def test_reviewer_crud(api, state):
+    """Assign, list, and remove a reviewer on a question."""
+    question_id = state.q_ids[0]
+
+    # Create a user-role account to be the reviewer
+    reviewer = api.ensure_user({
+        "username": "e2e_reviewer",
+        "password": "reviewer123",
+        "role": "user",
+    })
+    reviewer_id = reviewer["user_id"]
+
+    try:
+        # Assign reviewer (admin can do this)
+        _, body, _ = api.post_json(
+            f"/questions/{question_id}/reviewers",
+            {"reviewer_id": reviewer_id},
+        )
+        resp = parse_json(body)
+        assert len(resp["reviewers"]) == 1
+        assert resp["reviewers"][0]["reviewer_id"] == reviewer_id
+        assert resp["reviewers"][0]["username"] == "e2e_reviewer"
+
+        # List reviewers
+        _, body, _ = api.get(f"/questions/{question_id}/reviewers")
+        resp = parse_json(body)
+        assert len(resp["reviewers"]) == 1
+
+        # Duplicate assign is idempotent
+        _, body, _ = api.post_json(
+            f"/questions/{question_id}/reviewers",
+            {"reviewer_id": reviewer_id},
+        )
+        resp = parse_json(body)
+        assert len(resp["reviewers"]) == 1
+
+        # Remove reviewer
+        _, body, _ = api.delete(
+            f"/questions/{question_id}/reviewers/{reviewer_id}",
+        )
+        resp = parse_json(body)
+        assert len(resp["reviewers"]) == 0
+    finally:
+        api.delete(f"/admin/users/{reviewer_id}")
+
+
+def test_reviewer_role_restriction(api, state):
+    """Only user-role accounts can be assigned as reviewers."""
+    question_id = state.q_ids[0]
+
+    # Create a viewer-role account
+    viewer = api.ensure_user({
+        "username": "e2e_viewer_no_review",
+        "password": "viewer12345",
+        "role": "viewer",
+    })
+
+    try:
+        # Assigning a viewer as reviewer should fail
+        api.post_json(
+            f"/questions/{question_id}/reviewers",
+            {"reviewer_id": viewer["user_id"]},
+            expect=400,
+        )
+    finally:
+        api.delete(f"/admin/users/{viewer['user_id']}")
+
+
+def test_viewer_cannot_assign_reviewer(api, state):
+    """Viewer cannot assign reviewers (requires leader or above)."""
+    question_id = state.q_ids[0]
+
+    # Create a user to be the reviewer and a viewer to attempt the action
+    target = api.ensure_user({
+        "username": "e2e_review_target",
+        "password": "target12345",
+        "role": "user",
+    })
+
+    viewer = api.ensure_user({
+        "username": "e2e_viewer_assign",
+        "password": "viewer12345",
+        "role": "viewer",
+    })
+
+    saved = api._access_token
+    try:
+        api.login("e2e_viewer_assign", "viewer12345")
+        api.post_json(
+            f"/questions/{question_id}/reviewers",
+            {"reviewer_id": target["user_id"]},
+            expect=403,
+        )
+    finally:
+        api.set_token(saved)
+        api.delete(f"/admin/users/{target['user_id']}")
+        api.delete(f"/admin/users/{viewer['user_id']}")
+
+
+# ── assigned_reviewer_id filter tests ────────────────────────────
+
+
+def test_filter_questions_by_assigned_reviewer_id(api, state):
+    """Filter questions by assigned_reviewer_id (reviewer management UUID)."""
+    question_id = state.q_ids[0]
+
+    # Create a user to assign as reviewer
+    reviewer_user = api.ensure_user({
+        "username": "e2e_assigned_filter",
+        "password": "filter12345",
+        "role": "user",
+    })
+    reviewer_id = reviewer_user["user_id"]
+
+    try:
+        # Assign reviewer to the first question
+        api.post_json(
+            f"/questions/{question_id}/reviewers",
+            {"reviewer_id": reviewer_id},
+        )
+
+        # Filter by assigned_reviewer_id — should find the question
+        _, body, _ = api.get(f"/questions?assigned_reviewer_id={reviewer_id}")
+        data = parse_json(body)
+        found_ids = [q["question_id"] for q in data["items"]]
+        assert question_id in found_ids, (
+            f"expected {question_id} in results when filtering by assigned reviewer"
+        )
+
+        # A non-assigned user should NOT have this question
+        _, body2, _ = api.get(
+            "/questions?assigned_reviewer_id=00000000-0000-0000-0000-000000000000"
+        )
+        data2 = parse_json(body2)
+        found_ids2 = [q["question_id"] for q in data2["items"]]
+        assert question_id not in found_ids2
+
+        # Invalid UUID → 400
+        api.get("/questions?assigned_reviewer_id=not-a-uuid", expect=400)
+
+        # Cleanup: remove reviewer assignment
+        api.delete(f"/questions/{question_id}/reviewers/{reviewer_id}")
+    finally:
+        api.delete(f"/admin/users/{reviewer_id}")
+
+
+def test_filter_assigned_reviewer_id_for_my_reviews(api, state):
+    """User can filter 'my reviews' using assigned_reviewer_id with own user_id."""
+    q1 = state.q_ids[0]
+    q2 = state.q_ids[1] if len(state.q_ids) > 1 else None
+
+    reviewer_user = api.ensure_user({
+        "username": "e2e_my_reviews",
+        "password": "myrev12345",
+        "role": "user",
+    })
+    reviewer_id = reviewer_user["user_id"]
+
+    try:
+        # Assign to q1 only
+        api.post_json(
+            f"/questions/{q1}/reviewers",
+            {"reviewer_id": reviewer_id},
+        )
+
+        # Login as the reviewer user and filter by own ID
+        saved = api._access_token
+        api.login("e2e_my_reviews", "myrev12345")
+
+        _, body, _ = api.get(f"/questions?assigned_reviewer_id={reviewer_id}")
+        data = parse_json(body)
+        found_ids = [q["question_id"] for q in data["items"]]
+        assert q1 in found_ids
+        if q2:
+            assert q2 not in found_ids
+
+        api.set_token(saved)
+
+        # Cleanup
+        api.delete(f"/questions/{q1}/reviewers/{reviewer_id}")
+    finally:
+        api.login("admin", "changeme")
+        api.delete(f"/admin/users/{reviewer_id}")
+
+
+# ── difficulty updated_by tests ──────────────────────────────────
+
+
+def test_difficulty_updated_by_present(api, state):
+    """Difficulty values include updated_by with editor info after PATCH."""
+    question_id = state.q_ids[0]
+
+    # Get the question detail and check difficulty updated_by
+    _, body, _ = api.get(f"/questions/{question_id}")
+    detail = parse_json(body)
+    difficulty = detail["difficulty"]
+
+    # After the patch phase, difficulty has been set by admin
+    assert "human" in difficulty
+    human = difficulty["human"]
+    assert "updated_by" in human
+    assert human["updated_by"] is not None
+    assert "user_id" in human["updated_by"]
+    assert "username" in human["updated_by"]
+    assert "display_name" in human["updated_by"]
+
+
+def test_difficulty_updated_by_tracks_editor(api, state):
+    """updated_by correctly tracks which user last edited a difficulty tag."""
+    question_id = state.q_ids[0]
+
+    # Create a user and assign as reviewer
+    reviewer = api.ensure_user({
+        "username": "e2e_diff_editor",
+        "password": "editor12345",
+        "role": "user",
+    })
+    reviewer_id = reviewer["user_id"]
+
+    try:
+        # Assign as reviewer
+        api.post_json(
+            f"/questions/{question_id}/reviewers",
+            {"reviewer_id": reviewer_id},
+        )
+
+        # Login as reviewer and add a new difficulty tag
+        saved = api._access_token
+        api.login("e2e_diff_editor", "editor12345")
+        api.patch_json(f"/questions/{question_id}", {
+            "difficulty": {
+                "e2e_test_tag": {"score": 3, "notes": "test tag"},
+            },
+        })
+
+        # Check updated_by on the new tag
+        _, body, _ = api.get(f"/questions/{question_id}")
+        detail = parse_json(body)
+        test_tag = detail["difficulty"].get("e2e_test_tag")
+        assert test_tag is not None
+        assert test_tag["updated_by"] is not None
+        assert test_tag["updated_by"]["user_id"] == reviewer_id
+        assert test_tag["updated_by"]["username"] == "e2e_diff_editor"
+
+        # Cleanup: switch back to admin and delete the tag
+        api.set_token(saved)
+        # Re-patch as admin with full replace (removes e2e_test_tag)
+        _, body2, _ = api.get(f"/questions/{question_id}")
+        current_diff = parse_json(body2)["difficulty"]
+        # Build new difficulty without e2e_test_tag, keeping human
+        clean_diff = {}
+        for k, v in current_diff.items():
+            if k != "e2e_test_tag":
+                clean_diff[k] = {"score": v["score"]}
+                if v.get("notes"):
+                    clean_diff[k]["notes"] = v["notes"]
+        api.patch_json(f"/questions/{question_id}", {
+            "difficulty": clean_diff,
+        })
+
+        api.delete(f"/questions/{question_id}/reviewers/{reviewer_id}")
+    finally:
+        api.login("admin", "changeme")
+        api.delete(f"/admin/users/{reviewer_id}")

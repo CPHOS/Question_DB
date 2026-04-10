@@ -189,6 +189,7 @@ async fn load_paper_bundle_data(pool: &PgPool, paper_id: &str) -> Result<PaperBu
         SELECT p.paper_id::text AS paper_id, p.description, p.title, p.subtitle,
                p.append_object_id::text AS append_object_id,
                o.file_name AS append_file_name, o.mime_type AS append_mime_type,
+               p.created_by::text AS created_by,
                to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
                to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
         FROM papers p

@@ -206,6 +206,8 @@ def _run_paper_flow(
     items = parse_json(api.get("/papers")[1])["items"]
     ids_in_list = {i["paper_id"] for i in items}
     assert paper_a_id in ids_in_list and paper_b_id in ids_in_list
+    for item in items:
+        assert "created_by" in item
 
     _, body, _ = api.get(
         f"/papers?q={urllib.parse.quote(config.paper_b['subtitle'])}"
@@ -246,6 +248,7 @@ def _run_paper_flow(
     # ── Detail ───────────────────────────────────────────────
     detail = parse_json(api.get(f"/papers/{paper_a_id}")[1])
     assert [q["question_id"] for q in detail["questions"]] == first_n
+    assert "created_by" in detail  # paper-level ownership tracking
     # Verify each question carries full metadata (QuestionSummary shape)
     for q in detail["questions"]:
         assert "description" in q
@@ -257,6 +260,7 @@ def _run_paper_flow(
         assert isinstance(q["reviewers"], list)
         assert "created_at" in q
         assert "updated_at" in q
+        assert "created_by" in q  # may be null for legacy data
         # score may be null
         assert "score" in q
 
@@ -386,3 +390,28 @@ def test_paper_bundle_validation(api):
     api.post_json(
         "/papers/bundles", {"paper_ids": ["not-a-uuid"]}, expect=400,
     )
+
+
+def test_user_cannot_create_paper(api, state):
+    """User role cannot create papers (requires leader or above)."""
+    user = api.ensure_user({
+        "username": "e2e_user_nopaper",
+        "password": "usernopaper1",
+        "role": "user",
+    })
+
+    saved = api._access_token
+    try:
+        api.login("e2e_user_nopaper", "usernopaper1")
+        api.upload(
+            "/papers",
+            fields=_paper_fields(
+                {"description": "forbidden", "title": "No", "subtitle": "No"},
+                state.rt_q_ids[:2],
+            ),
+            file_path=state.appendix_paths["mock-a"],
+            expect=403,
+        )
+    finally:
+        api.set_token(saved)
+        api.delete(f"/admin/users/{user['user_id']}")

@@ -21,12 +21,21 @@ pub struct QuestionDifficulty {
     pub(crate) entries: BTreeMap<String, QuestionDifficultyValue>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DifficultyEditor {
+    pub(crate) user_id: String,
+    pub(crate) username: String,
+    pub(crate) display_name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuestionDifficultyValue {
     pub(crate) score: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) notes: Option<String>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub(crate) updated_by: Option<DifficultyEditor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +58,8 @@ pub struct QuestionSummary {
     pub(crate) reviewers: Vec<String>,
     pub(crate) tags: Vec<String>,
     pub(crate) difficulty: QuestionDifficulty,
+    pub(crate) allow_auto_reviewer: bool,
+    pub(crate) created_by: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }
@@ -75,6 +86,8 @@ pub struct QuestionDetail {
     pub(crate) reviewers: Vec<String>,
     pub(crate) tags: Vec<String>,
     pub(crate) difficulty: QuestionDifficulty,
+    pub(crate) allow_auto_reviewer: bool,
+    pub(crate) created_by: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
     pub(crate) assets: Vec<QuestionAssetRef>,
@@ -96,6 +109,8 @@ pub(crate) struct QuestionsParams {
     pub(crate) paper_id: Option<String>,
     pub(crate) category: Option<String>,
     pub(crate) tag: Option<String>,
+    pub(crate) reviewer: Option<String>,
+    pub(crate) assigned_reviewer_id: Option<String>,
     pub(crate) score_min: Option<i32>,
     pub(crate) score_max: Option<i32>,
     pub(crate) difficulty_tag: Option<String>,
@@ -140,9 +155,13 @@ pub(crate) struct UpdateQuestionMetadataRequest {
     #[serde(default)]
     pub(crate) difficulty: Option<QuestionDifficulty>,
     #[serde(default)]
+    pub(crate) delete_difficulty_tags: Option<Vec<String>>,
+    #[serde(default)]
     pub(crate) author: Option<String>,
     #[serde(default)]
     pub(crate) reviewers: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) allow_auto_reviewer: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -152,8 +171,10 @@ pub(crate) struct NormalizedQuestionMetadataUpdate {
     pub(crate) tags: Option<Vec<String>>,
     pub(crate) status: Option<String>,
     pub(crate) difficulty: Option<NormalizedQuestionDifficulty>,
+    pub(crate) delete_difficulty_tags: Option<Vec<String>>,
     pub(crate) author: Option<String>,
     pub(crate) reviewers: Option<Vec<String>>,
+    pub(crate) allow_auto_reviewer: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -257,11 +278,13 @@ impl UpdateQuestionMetadataRequest {
             && self.tags.is_none()
             && self.status.is_none()
             && self.difficulty.is_none()
+            && self.delete_difficulty_tags.is_none()
             && self.author.is_none()
             && self.reviewers.is_none()
+            && self.allow_auto_reviewer.is_none()
         {
             return Err(anyhow!(
-                "request body must include at least one of: category, description, tags, status, difficulty, author, reviewers"
+                "request body must include at least one of: category, description, tags, status, difficulty, delete_difficulty_tags, author, reviewers, allow_auto_reviewer"
             ));
         }
 
@@ -280,7 +303,24 @@ impl UpdateQuestionMetadataRequest {
             .transpose()?;
         let difficulty = self
             .difficulty
-            .map(QuestionDifficulty::normalize)
+            .map(QuestionDifficulty::normalize_partial)
+            .transpose()?;
+        let delete_difficulty_tags = self
+            .delete_difficulty_tags
+            .map(|tags| {
+                let mut normalized = Vec::new();
+                for tag in tags {
+                    let trimmed = tag.trim().to_string();
+                    if trimmed.is_empty() {
+                        bail!("delete_difficulty_tags must not contain empty strings");
+                    }
+                    if trimmed == "human" {
+                        bail!("cannot delete the human difficulty tag");
+                    }
+                    normalized.push(trimmed);
+                }
+                Ok(normalized)
+            })
             .transpose()?;
         let author = self.author.map(|v| v.trim().to_string());
         let reviewers = self.reviewers.map(normalize_reviewers).transpose()?;
@@ -291,8 +331,10 @@ impl UpdateQuestionMetadataRequest {
             tags,
             status,
             difficulty,
+            delete_difficulty_tags,
             author,
             reviewers,
+            allow_auto_reviewer: self.allow_auto_reviewer,
         })
     }
 }
@@ -306,6 +348,11 @@ impl QuestionBundleRequest {
 impl QuestionDifficulty {
     pub(crate) fn normalize(self) -> Result<NormalizedQuestionDifficulty> {
         normalize_difficulty_entries(self.entries)
+    }
+
+    /// Normalize without requiring `human` key (for partial updates by reviewers).
+    pub(crate) fn normalize_partial(self) -> Result<NormalizedQuestionDifficulty> {
+        normalize_difficulty_entries_partial(self.entries)
     }
 }
 
@@ -402,6 +449,18 @@ fn normalize_tags(values: Vec<String>) -> Result<Vec<String>> {
 fn normalize_difficulty_entries(
     values: BTreeMap<String, QuestionDifficultyValue>,
 ) -> Result<NormalizedQuestionDifficulty> {
+    let normalized = normalize_difficulty_entries_partial(values)?;
+
+    if !normalized.contains_key("human") {
+        bail!("difficulty must include a human entry");
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_difficulty_entries_partial(
+    values: BTreeMap<String, QuestionDifficultyValue>,
+) -> Result<NormalizedQuestionDifficulty> {
     let mut normalized = BTreeMap::new();
 
     for (name, value) in values {
@@ -425,10 +484,6 @@ fn normalize_difficulty_entries(
         {
             bail!("difficulty tags must be unique after trimming");
         }
-    }
-
-    if !normalized.contains_key("human") {
-        bail!("difficulty must include a human entry");
     }
 
     Ok(normalized)

@@ -54,12 +54,15 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         .merge(system::router())
         .merge(auth::public_router());
 
-    // Viewer-level routes: any authenticated user can access
-    let viewer_routes = Router::new()
+    // Authenticated routes: any logged-in user can access.
+    // Fine-grained permission checks are done inside handlers.
+    let authenticated_routes = Router::new()
         .merge(auth::authenticated_router())
+        // Read-only (viewer+)
         .route(
             "/questions",
-            axum::routing::get(questions::handlers::list_questions),
+            axum::routing::get(questions::handlers::list_questions)
+                .post(questions::handlers::create_question),
         )
         .route(
             "/questions/tags",
@@ -71,35 +74,8 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         )
         .route(
             "/questions/:question_id",
-            axum::routing::get(questions::handlers::get_question_detail),
-        )
-        .route(
-            "/questions/bundles",
-            axum::routing::post(questions::handlers::download_questions_bundle),
-        )
-        .route("/papers", axum::routing::get(papers::handlers::list_papers))
-        .route(
-            "/papers/:paper_id",
-            axum::routing::get(papers::handlers::get_paper_detail),
-        )
-        .route(
-            "/papers/bundles",
-            axum::routing::post(papers::handlers::download_papers_bundle),
-        )
-        .layer(axum_middleware::from_fn_with_state(
-            state.clone(),
-            auth::middleware::require_auth,
-        ));
-
-    // Editor-level routes: create, update, and delete
-    let editor_routes = Router::new()
-        .route(
-            "/questions",
-            axum::routing::post(questions::handlers::create_question),
-        )
-        .route(
-            "/questions/:question_id",
-            axum::routing::patch(questions::handlers::update_question_metadata)
+            axum::routing::get(questions::handlers::get_question_detail)
+                .patch(questions::handlers::update_question_metadata)
                 .delete(questions::handlers::delete_question),
         )
         .route(
@@ -107,19 +83,37 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
             axum::routing::put(questions::handlers::replace_question_file),
         )
         .route(
+            "/questions/:question_id/reviewers",
+            axum::routing::get(questions::handlers::list_question_reviewers)
+                .post(questions::handlers::assign_reviewer),
+        )
+        .route(
+            "/questions/:question_id/reviewers/:reviewer_id",
+            axum::routing::delete(questions::handlers::remove_reviewer),
+        )
+        .route(
+            "/questions/bundles",
+            axum::routing::post(questions::handlers::download_questions_bundle),
+        )
+        .route(
             "/papers",
-            axum::routing::post(papers::handlers::create_paper),
+            axum::routing::get(papers::handlers::list_papers)
+                .post(papers::handlers::create_paper),
         )
         .route(
             "/papers/:paper_id",
-            axum::routing::patch(papers::handlers::update_paper)
+            axum::routing::get(papers::handlers::get_paper_detail)
+                .patch(papers::handlers::update_paper)
                 .delete(papers::handlers::delete_paper),
         )
         .route(
             "/papers/:paper_id/file",
             axum::routing::put(papers::handlers::replace_paper_file),
         )
-        .layer(axum_middleware::from_fn(auth::middleware::require_editor))
+        .route(
+            "/papers/bundles",
+            axum::routing::post(papers::handlers::download_papers_bundle),
+        )
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth::middleware::require_auth,
@@ -137,8 +131,7 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
 
     Router::new()
         .merge(public)
-        .merge(viewer_routes)
-        .merge(editor_routes)
+        .merge(authenticated_routes)
         .merge(admin_routes)
         .layer(DefaultBodyLimit::max(
             questions::MAX_UPLOAD_BYTES

@@ -158,7 +158,8 @@ fn run_native_restore(database_url: &str, input_path: &str) -> Result<()> {
             "DROP SCHEMA public CASCADE; CREATE SCHEMA public;",
         ],
     )?;
-    run_psql_command(database_url, &["-v", "ON_ERROR_STOP=1", "-f", input_path])
+    run_psql_command(database_url, &["-v", "ON_ERROR_STOP=1", "-f", input_path])?;
+    run_native_migrations(database_url)
 }
 
 fn run_container_backup(container_name: &str, output_path: &Path) -> Result<()> {
@@ -217,7 +218,57 @@ fn run_container_restore(container_name: &str, input_path: &str) -> Result<()> {
         .context("spawn docker psql restore fallback failed")?
         .wait_with_output()
         .context("wait docker psql restore fallback failed")?;
-    ensure_command_success("docker exec psql restore", restore_output)
+    ensure_command_success("docker exec psql restore", restore_output)?;
+    run_container_migrations(container_name)
+}
+
+fn run_native_migrations(database_url: &str) -> Result<()> {
+    for migration in list_migration_files()? {
+        let path = migration.to_string_lossy();
+        run_psql_command(database_url, &["-v", "ON_ERROR_STOP=1", "-f", &path])
+            .with_context(|| format!("apply migration failed: {path}"))?;
+    }
+    Ok(())
+}
+
+fn run_container_migrations(container_name: &str) -> Result<()> {
+    for migration in list_migration_files()? {
+        let path_display = migration.to_string_lossy().to_string();
+        let file = File::open(&migration)
+            .with_context(|| format!("open migration file failed: {path_display}"))?;
+        let output = Command::new("docker")
+            .args([
+                "exec",
+                "-i",
+                container_name,
+                "sh",
+                "-lc",
+                r#"psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB""#,
+            ])
+            .stdin(Stdio::from(file))
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("spawn docker psql migration failed: {path_display}"))?
+            .wait_with_output()
+            .with_context(|| format!("wait docker psql migration failed: {path_display}"))?;
+        ensure_command_success("docker exec psql migration", output)?;
+    }
+    Ok(())
+}
+
+fn list_migration_files() -> Result<Vec<PathBuf>> {
+    let migrations_dir = PathBuf::from("/app/migrations");
+    if !migrations_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&migrations_dir)
+        .context("read migrations directory failed")?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
+        .collect();
+    files.sort();
+    Ok(files)
 }
 
 fn ensure_command_success(command_name: &str, output: Output) -> Result<()> {

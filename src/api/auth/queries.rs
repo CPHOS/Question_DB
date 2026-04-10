@@ -21,6 +21,7 @@ pub(crate) struct UserRow {
     pub(crate) password_hash: String,
     pub(crate) role: String,
     pub(crate) is_active: bool,
+    pub(crate) leader_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub(crate) async fn find_user_by_username(
@@ -29,7 +30,7 @@ pub(crate) async fn find_user_by_username(
 ) -> Result<Option<UserRow>> {
     let row = query(
         r#"SELECT user_id::text AS user_id, username, display_name,
-                  password_hash, role, is_active
+                  password_hash, role, is_active, leader_expires_at
            FROM users WHERE username = $1"#,
     )
     .bind(username)
@@ -44,13 +45,14 @@ pub(crate) async fn find_user_by_username(
         password_hash: r.get("password_hash"),
         role: r.get("role"),
         is_active: r.get("is_active"),
+        leader_expires_at: r.get("leader_expires_at"),
     }))
 }
 
 pub(crate) async fn find_user_by_id(pool: &PgPool, user_id: &str) -> Result<Option<UserRow>> {
     let row = query(
         r#"SELECT user_id::text AS user_id, username, display_name,
-                  password_hash, role, is_active
+                  password_hash, role, is_active, leader_expires_at
            FROM users WHERE user_id = $1::uuid"#,
     )
     .bind(user_id)
@@ -65,6 +67,7 @@ pub(crate) async fn find_user_by_id(pool: &PgPool, user_id: &str) -> Result<Opti
         password_hash: r.get("password_hash"),
         role: r.get("role"),
         is_active: r.get("is_active"),
+        leader_expires_at: r.get("leader_expires_at"),
     }))
 }
 
@@ -72,6 +75,7 @@ pub(crate) async fn load_user_profile(pool: &PgPool, user_id: &str) -> Result<Us
     let row = query(
         r#"SELECT user_id::text AS user_id, username, display_name,
                   role, is_active,
+                  to_char(leader_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS leader_expires_at,
                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
            FROM users WHERE user_id = $1::uuid"#,
@@ -88,6 +92,7 @@ pub(crate) async fn load_user_profile(pool: &PgPool, user_id: &str) -> Result<Us
         display_name: row.get("display_name"),
         role: row.get("role"),
         is_active: row.get("is_active"),
+        leader_expires_at: row.get("leader_expires_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -101,6 +106,50 @@ pub(crate) async fn update_password(pool: &PgPool, user_id: &str, new_hash: &str
         .await
         .context("update password failed")?;
     Ok(())
+}
+
+pub(crate) async fn search_users(
+    pool: &PgPool,
+    keyword: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<UserProfile>, i64)> {
+    let needle = format!("%{}%", crate::api::shared::utils::escape_ilike(keyword));
+    let rows = query(
+        r#"SELECT user_id::text AS user_id, username, display_name,
+                  role, is_active,
+                  to_char(leader_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS leader_expires_at,
+                  to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+                  to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at,
+                  COUNT(*) OVER() AS total_count
+           FROM users
+           WHERE is_active = true
+             AND (username ILIKE $1 OR display_name ILIKE $1)
+           ORDER BY username
+           LIMIT $2 OFFSET $3"#,
+    )
+    .bind(&needle)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .context("search users failed")?;
+
+    let total = rows.first().map(|r| r.get::<i64, _>("total_count")).unwrap_or(0);
+    let users = rows
+        .into_iter()
+        .map(|r| UserProfile {
+            user_id: r.get("user_id"),
+            username: r.get("username"),
+            display_name: r.get("display_name"),
+            role: r.get("role"),
+            is_active: r.get("is_active"),
+            leader_expires_at: r.get("leader_expires_at"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        })
+        .collect();
+    Ok((users, total))
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +231,7 @@ pub(crate) async fn create_user(
     display_name: &str,
     password_hash: &str,
     role: &str,
+    leader_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<UserProfile> {
     // Check uniqueness explicitly for better error message
     let exists = query("SELECT 1 FROM users WHERE username = $1")
@@ -195,10 +245,11 @@ pub(crate) async fn create_user(
     }
 
     let row = query(
-        r#"INSERT INTO users (username, display_name, password_hash, role)
-           VALUES ($1, $2, $3, $4)
+        r#"INSERT INTO users (username, display_name, password_hash, role, leader_expires_at)
+           VALUES ($1, $2, $3, $4, $5)
            RETURNING user_id::text AS user_id,
                      username, display_name, role, is_active,
+                     to_char(leader_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS leader_expires_at,
                      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
                      to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at"#,
     )
@@ -206,6 +257,7 @@ pub(crate) async fn create_user(
     .bind(display_name)
     .bind(password_hash)
     .bind(role)
+    .bind(leader_expires_at)
     .fetch_one(pool)
     .await
     .context("create user failed")?;
@@ -216,6 +268,7 @@ pub(crate) async fn create_user(
         display_name: row.get("display_name"),
         role: row.get("role"),
         is_active: row.get("is_active"),
+        leader_expires_at: row.get("leader_expires_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -231,6 +284,7 @@ pub(crate) async fn list_users(
 
     let rows = query(
         r#"SELECT user_id::text AS user_id, username, display_name, role, is_active,
+                  to_char(leader_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS leader_expires_at,
                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at,
                   COUNT(*) OVER() AS total_count
@@ -256,6 +310,7 @@ pub(crate) async fn list_users(
             display_name: r.get("display_name"),
             role: r.get("role"),
             is_active: r.get("is_active"),
+            leader_expires_at: r.get("leader_expires_at"),
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
         })
@@ -270,6 +325,7 @@ pub(crate) async fn update_user(
     display_name: Option<&str>,
     role: Option<&str>,
     is_active: Option<bool>,
+    leader_expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
 ) -> Result<UserProfile> {
     // Verify user exists
     let exists = query("SELECT 1 FROM users WHERE user_id = $1::uuid")
@@ -282,53 +338,20 @@ pub(crate) async fn update_user(
         return Err(NotFoundError(format!("user not found: {user_id}")).into());
     }
 
-    if display_name.is_none() && role.is_none() && is_active.is_none() {
+    if display_name.is_none() && role.is_none() && is_active.is_none() && leader_expires_at.is_none() {
         return Err(ValidationError("at least one field must be provided".into()).into());
     }
 
-    // Build dynamic UPDATE
-    let mut sets = Vec::new();
-    let mut param_idx = 1u32;
-
-    // We'll build the query string manually with numbered params
-    if display_name.is_some() {
-        param_idx += 1;
-        sets.push(format!("display_name = ${param_idx}"));
-    }
-    if role.is_some() {
-        param_idx += 1;
-        sets.push(format!("role = ${param_idx}"));
-    }
-    if is_active.is_some() {
-        param_idx += 1;
-        sets.push(format!("is_active = ${param_idx}"));
-    }
-    sets.push("updated_at = NOW()".to_string());
-
-    let sql = format!(
-        r#"UPDATE users SET {}
-           WHERE user_id = $1::uuid
-           RETURNING user_id::text AS user_id, username, display_name, role, is_active,
-                     to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
-                     to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at"#,
-        sets.join(", ")
-    );
-
-    // Use sqlx QueryBuilder for safe binding
-    use sqlx::{Postgres, QueryBuilder};
-    let mut builder = QueryBuilder::<Postgres>::new("");
-    builder.push(&sql);
-
-    // Unfortunately, dynamic queries with variable bindings need a different approach.
-    // Let's use a simpler strategy: always set all fields, using COALESCE to keep old values.
     let row = query(
         r#"UPDATE users SET
                display_name = COALESCE($2, display_name),
                role = COALESCE($3, role),
                is_active = COALESCE($4, is_active),
+               leader_expires_at = CASE WHEN $5::boolean THEN $6::timestamptz ELSE leader_expires_at END,
                updated_at = NOW()
            WHERE user_id = $1::uuid
            RETURNING user_id::text AS user_id, username, display_name, role, is_active,
+                     to_char(leader_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS leader_expires_at,
                      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
                      to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at"#,
     )
@@ -336,6 +359,8 @@ pub(crate) async fn update_user(
     .bind(display_name)
     .bind(role)
     .bind(is_active)
+    .bind(leader_expires_at.is_some()) // $5: whether to update leader_expires_at
+    .bind(leader_expires_at.flatten()) // $6: the new value (None = set NULL)
     .fetch_one(pool)
     .await
     .context("update user failed")?;
@@ -346,6 +371,7 @@ pub(crate) async fn update_user(
         display_name: row.get("display_name"),
         role: row.get("role"),
         is_active: row.get("is_active"),
+        leader_expires_at: row.get("leader_expires_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })

@@ -22,8 +22,7 @@ impl PapersParams {
                    p.title,
                    p.subtitle,
 
-                   COUNT(pq_count.question_id) AS question_count,
-                   to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS created_at,
+                   COUNT(pq_count.question_id) AS question_count,                   p.created_by::text AS created_by,                   to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS created_at,
                    to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS updated_at
             FROM papers p
             LEFT JOIN paper_questions pq_count ON pq_count.paper_id = p.paper_id
@@ -83,7 +82,7 @@ impl PapersParams {
         let offset = self.normalized_offset();
         builder
             .push(
-                " GROUP BY p.paper_id, p.description, p.title, p.subtitle, p.created_at, p.updated_at",
+                " GROUP BY p.paper_id, p.description, p.title, p.subtitle, p.created_by, p.created_at, p.updated_at",
             )
             .push(" ORDER BY p.created_at DESC, p.paper_id LIMIT ")
             .push_bind(limit)
@@ -132,6 +131,7 @@ pub(crate) fn map_paper_summary(row: PgRow) -> super::models::PaperSummary {
         title: row.get("title"),
         subtitle: row.get("subtitle"),
         question_count: row.get("question_count"),
+        created_by: row.get("created_by"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -146,6 +146,7 @@ pub(crate) fn map_paper_detail(
         description: row.get("description"),
         title: row.get("title"),
         subtitle: row.get("subtitle"),
+        created_by: row.get("created_by"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         questions,
