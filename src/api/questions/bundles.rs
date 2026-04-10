@@ -121,6 +121,8 @@ pub(crate) fn question_detail_to_summary(detail: &QuestionDetail) -> QuestionSum
         reviewers: detail.reviewers.clone(),
         tags: detail.tags.clone(),
         difficulty: detail.difficulty.clone(),
+        allow_auto_reviewer: detail.allow_auto_reviewer,
+        created_by: detail.created_by.clone(),
         created_at: detail.created_at.clone(),
         updated_at: detail.updated_at.clone(),
     }

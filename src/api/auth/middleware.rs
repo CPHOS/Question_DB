@@ -3,6 +3,7 @@
 use axum::{
     body::Body, extract::State, http::Request, middleware::Next, response::Response, Extension,
 };
+use chrono::Utc;
 
 use super::{
     models::{CurrentUser, Role},
@@ -11,6 +12,7 @@ use super::{
 use crate::api::{shared::error::ApiError, AppState};
 
 /// Middleware: extract and validate JWT, inject `CurrentUser` into extensions.
+/// If the token role is `leader` but `leader_exp` has passed, downgrade to `user`.
 pub(crate) async fn require_auth(
     State(state): State<AppState>,
     mut req: Request<Body>,
@@ -20,8 +22,17 @@ pub(crate) async fn require_auth(
     let claims = decode_access_token(token, &state.jwt_secret)
         .map_err(|_| ApiError::unauthorized("invalid or expired token"))?;
 
-    let role = Role::from_str(&claims.role)
+    let mut role = Role::from_str(&claims.role)
         .ok_or_else(|| ApiError::unauthorized("invalid role in token"))?;
+
+    // Leader expiry check: downgrade expired leader to user.
+    if role == Role::Leader {
+        if let Some(leader_exp) = claims.leader_exp {
+            if Utc::now().timestamp() > leader_exp {
+                role = Role::User;
+            }
+        }
+    }
 
     let current = CurrentUser {
         user_id: claims.sub,
@@ -33,25 +44,13 @@ pub(crate) async fn require_auth(
     Ok(next.run(req).await)
 }
 
-/// Middleware: require the caller to have at least `editor` role.
-pub(crate) async fn require_editor(
-    Extension(current): Extension<CurrentUser>,
-    req: Request<Body>,
-    next: Next,
-) -> Result<Response, ApiError> {
-    if !current.has_role(Role::Editor) {
-        return Err(ApiError::forbidden("editor role required"));
-    }
-    Ok(next.run(req).await)
-}
-
 /// Middleware: require the caller to have `admin` role.
 pub(crate) async fn require_admin(
     Extension(current): Extension<CurrentUser>,
     req: Request<Body>,
     next: Next,
 ) -> Result<Response, ApiError> {
-    if !current.has_role(Role::Admin) {
+    if !current.role.is_admin() {
         return Err(ApiError::forbidden("admin role required"));
     }
     Ok(next.run(req).await)

@@ -26,4 +26,5 @@ pub(crate) fn authenticated_router() -> Router<AppState> {
         .route("/auth/me", get(handlers::me))
         .route("/auth/me/password", patch(handlers::change_password))
         .route("/auth/logout", post(handlers::logout))
+        .route("/users/search", get(handlers::search_users))
 }

@@ -64,9 +64,14 @@ pub(crate) async fn list_papers(
 }
 
 pub(crate) async fn create_paper(
+    Extension(current): Extension<CurrentUser>,
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> ApiResult<PaperImportResponse> {
+    if !current.role.can_create_paper() {
+        return Err(ApiError::forbidden("leader role or above required to create papers"));
+    }
+
     let mut file_name = None;
     let mut description = None;
     let mut title = None;
@@ -125,7 +130,7 @@ pub(crate) async fn create_paper(
     ensure_paper_questions_valid(&state.pool, &request.question_ids).await?;
 
     Ok(Json(
-        import_paper_zip(&state.pool, file_name.as_deref(), &request, bytes)
+        import_paper_zip(&state.pool, file_name.as_deref(), &request, bytes, &current.user_id)
             .await
             .map_err(ApiError::from)?,
     ))
@@ -145,10 +150,12 @@ pub(crate) async fn download_papers_bundle(
 
 pub(crate) async fn replace_paper_file(
     AxumPath(paper_id): AxumPath<String>,
+    Extension(current): Extension<CurrentUser>,
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> ApiResult<PaperFileReplaceResponse> {
     parse_uuid_param(&paper_id, "paper_id")?;
+    check_paper_write_access(&state, &current, &paper_id).await?;
 
     let (file_name, bytes) = read_uploaded_file(&mut multipart).await?;
     validate_upload_size(&bytes, MAX_UPLOAD_BYTES)?;
@@ -162,10 +169,12 @@ pub(crate) async fn replace_paper_file(
 
 pub(crate) async fn update_paper(
     AxumPath(paper_id): AxumPath<String>,
+    Extension(current): Extension<CurrentUser>,
     State(state): State<AppState>,
     Json(request): Json<UpdatePaperRequest>,
 ) -> ApiResult<PaperDetail> {
     parse_uuid_param(&paper_id, "paper_id")?;
+    check_paper_write_access(&state, &current, &paper_id).await?;
 
     let update = request
         .normalize()
@@ -275,6 +284,7 @@ pub(crate) async fn delete_paper(
     State(state): State<AppState>,
 ) -> ApiResult<PaperDeleteResponse> {
     parse_uuid_param(&paper_id, "paper_id")?;
+    check_paper_write_access(&state, &current, &paper_id).await?;
 
     let mut tx = state
         .pool
@@ -341,5 +351,43 @@ fn validate_question_ids(question_ids: &[String]) -> Result<(), ApiError> {
         Uuid::parse_str(question_id)
             .map_err(|_| ApiError::bad_request(format!("invalid question_id: {question_id}")))?;
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Permission helpers
+// ---------------------------------------------------------------------------
+
+/// Check that the current user has write access to a paper.
+/// Admin: always. Leader/Bot: if they are the owner. User/Viewer: never.
+async fn check_paper_write_access(
+    state: &AppState,
+    current: &CurrentUser,
+    paper_id: &str,
+) -> Result<(), ApiError> {
+    if current.role.is_admin() {
+        return Ok(());
+    }
+
+    if !current.role.can_create_paper() {
+        return Err(ApiError::forbidden("you do not have permission to modify this paper"));
+    }
+
+    // Leader/Bot: must be the owner.
+    let is_owner = query(
+        "SELECT 1 FROM papers WHERE paper_id = $1::uuid AND deleted_at IS NULL AND created_by = $2::uuid",
+    )
+    .bind(paper_id)
+    .bind(&current.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .context("check paper ownership failed")
+    .map_err(ApiError::from)?
+    .is_some();
+
+    if !is_owner {
+        return Err(ApiError::forbidden("you can only modify papers you created"));
+    }
+
     Ok(())
 }

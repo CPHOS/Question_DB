@@ -20,8 +20,11 @@ from .config import (
     CONTAINER_NAME,
     DB_URL,
     DOWNLOADS_DIR,
+    POSTGRES_DB,
     POSTGRES_IMAGE,
+    POSTGRES_PASSWORD,
     POSTGRES_PORT,
+    POSTGRES_USER,
     ROOT_DIR,
     SAMPLES_DIR,
     TMP_DIR,
@@ -100,6 +103,57 @@ class ApiClient:
     def login_as(self, username: str, password: str) -> dict:
         """Login as a specific user and store the token."""
         return self.login(username, password)
+
+    def ensure_user(self, payload: dict) -> dict:
+        """Create a user or, if the username already exists, reset password and reactivate.
+
+        Returns the user profile dict (with ``user_id``).
+        """
+        username = payload["username"]
+        password = payload["password"]
+        url = f"http://127.0.0.1:{API_PORT}/admin/users"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode(),
+            method="POST",
+            headers={"content-type": "application/json", **self._auth_headers()},
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return parse_json(resp.read().decode())
+        except urllib.error.HTTPError as err:
+            if err.code != 409:
+                raise
+            err.read()  # drain
+
+        # User already exists — look up by username.
+        _, body, _ = self.get(f"/admin/users?limit=200")
+        users = parse_json(body)["items"]
+        user = next(u for u in users if u["username"] == username)
+        uid = user["user_id"]
+
+        # Reactivate + set correct role / leader_expires_at.
+        patch: dict[str, Any] = {"is_active": True}
+        if "role" in payload:
+            patch["role"] = payload["role"]
+        # Explicitly set or clear leader_expires_at so stale values don't leak.
+        if "leader_expires_at" in payload:
+            patch["leader_expires_at"] = payload["leader_expires_at"]
+        else:
+            patch["leader_expires_at"] = None
+        if "display_name" in payload:
+            patch["display_name"] = payload["display_name"]
+        self.patch_json(f"/admin/users/{uid}", patch)
+
+        # Reset password so the test can login with the expected credentials.
+        self.post_json(f"/admin/users/{uid}/reset-password", {
+            "new_password": password,
+        })
+
+        # Re-fetch profile to return fresh data.
+        _, body, _ = self.get(f"/admin/users?limit=200")
+        users = parse_json(body)["items"]
+        return next(u for u in users if u["user_id"] == uid)
 
     def set_token(self, token: str | None) -> None:
         """Manually set or clear the auth token."""
@@ -257,9 +311,9 @@ class ApiClient:
         subprocess.run(
             [
                 "docker", "run", "-d", "--name", CONTAINER_NAME,
-                "-e", "POSTGRES_USER=postgres",
-                "-e", "POSTGRES_PASSWORD=postgres",
-                "-e", "POSTGRES_DB=qb",
+                "-e", f"POSTGRES_USER={POSTGRES_USER}",
+                "-e", f"POSTGRES_PASSWORD={POSTGRES_PASSWORD}",
+                "-e", f"POSTGRES_DB={POSTGRES_DB}",
                 "-p", f"{POSTGRES_PORT}:5432",
                 POSTGRES_IMAGE,
             ],
@@ -274,7 +328,7 @@ class ApiClient:
             subprocess.run(
                 [
                     "docker", "exec", "-i", CONTAINER_NAME,
-                    "psql", "-U", "postgres", "-d", "qb",
+                    "psql", "-U", POSTGRES_USER, "-d", POSTGRES_DB,
                 ],
                 input=sql, cwd=ROOT_DIR, check=True, capture_output=True,
             )
@@ -343,7 +397,7 @@ class ApiClient:
             r = subprocess.run(
                 [
                     "docker", "exec", CONTAINER_NAME,
-                    "pg_isready", "-U", "postgres", "-d", "qb",
+                    "pg_isready", "-U", POSTGRES_USER, "-d", POSTGRES_DB,
                 ],
                 capture_output=True, check=False,
             )

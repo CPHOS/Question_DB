@@ -8,25 +8,37 @@
 - **Refresh Token**：不透明 UUID 字符串，有效期 **7 天**，一次性消费（轮换）
 - **传递方式**：`Authorization: Bearer <access_token>`
 - **密码存储**：Argon2id
-- **角色**：`viewer`（只读 + bundle 下载）、`editor`（读写）、`admin`（全部权限 + ops + 用户管理 + 垃圾回收）
+- **角色**：5 级角色体系，基于能力而非线性层级
+  - `viewer`：只读 + bundle 下载
+  - `user`：可上传题目，编辑自己创建的题目，可被分配为审阅人
+  - `leader`：可创建/编辑/删除题目和试卷（非 used），可分配审阅人；有过期时间，过期后降级为 user
+  - `bot`：同 leader 权限，无过期时间，用于自动化程序
+  - `admin`：全部权限 + ops + 用户管理 + 垃圾回收
 
 ## 权限矩阵
 
-| 端点 | 公开 | viewer | editor | admin |
-|---|:---:|:---:|:---:|:---:|
-| `GET /health` | ✅ | ✅ | ✅ | ✅ |
-| `POST /auth/login` | ✅ | — | — | — |
-| `POST /auth/refresh` | ✅ | — | — | — |
-| `GET /auth/me` | — | ✅ | ✅ | ✅ |
-| `PATCH /auth/me/password` | — | ✅ | ✅ | ✅ |
-| `POST /auth/logout` | — | ✅ | ✅ | ✅ |
-| `GET /questions`、`GET /questions/tags`、`GET /papers` | — | ✅ | ✅ | ✅ |
-| `GET /questions/:id`、`GET /papers/:id` | — | ✅ | ✅ | ✅ |
-| `POST /questions/bundles`、`POST /papers/bundles` | — | ✅ | ✅ | ✅ |
-| `POST/PATCH/PUT/DELETE` questions | — | — | ✅ | ✅ |
-| `POST/PATCH/PUT/DELETE` papers | — | — | ✅ | ✅ |
-| ops (exports / quality / db backup / db restore) | — | — | — | ✅ |
-| `/admin/*` | — | — | — | ✅ |
+| 端点 | 公开 | viewer | user | leader | bot | admin |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `GET /health` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /auth/login` | ✅ | — | — | — | — | — |
+| `POST /auth/refresh` | ✅ | — | — | — | — | — |
+| `GET /auth/me` | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `PATCH /auth/me/password` | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /auth/logout` | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `GET` questions/papers/tags | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST` bundles | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /questions`（上传） | — | — | ✅ | ✅ | ✅ | ✅ |
+| `PATCH /questions/:id`（更新） | — | — | ⚠️¹ | ✅ | ✅ | ✅ |
+| `DELETE /questions/:id` | — | — | — | ✅ | ✅ | ✅ |
+| `POST /papers`（创建） | — | — | — | ✅ | ✅ | ✅ |
+| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ⚠️² | ✅ |
+| 审阅人管理 | — | — | — | ✅ | ✅ | ✅ |
+| `GET /users/search` | — | — | — | ✅ | ✅ | ✅ |
+| ops (exports / quality / db) | — | — | — | — | — | ✅ |
+| `/admin/*` | — | — | — | — | — | ✅ |
+
+¹ user 只能编辑自己创建的题目（Full）或作为审阅人编辑难度标签（ReviewerOnly）
+² leader/bot 只能操作自己创建的试卷
 
 ## 环境变量
 
@@ -163,6 +175,7 @@
   "display_name": "Administrator",
   "role": "admin",
   "is_active": true,
+  "leader_expires_at": null,
   "created_at": "2026-01-01T00:00:00.000Z",
   "updated_at": "2026-01-01T00:00:00.000Z"
 }
@@ -175,8 +188,9 @@
 | `user_id` | string(UUID) | 用户 ID |
 | `username` | string | 用户名 |
 | `display_name` | string | 显示名 |
-| `role` | `"viewer"` \| `"editor"` \| `"admin"` | 角色 |
+| `role` | `"viewer"` \| `"user"` \| `"leader"` \| `"bot"` \| `"admin"` | 角色 |
 | `is_active` | boolean | 是否启用 |
+| `leader_expires_at` | string(ISO 8601) \| null | Leader 角色过期时间，仅 leader 角色有值 |
 | `created_at` | string(ISO 8601) | 创建时间 |
 | `updated_at` | string(ISO 8601) | 更新时间 |
 
@@ -218,3 +232,29 @@
 | `400` | 新密码少于 6 个字符 |
 | `401` | 旧密码不正确 |
 | `404` | 用户不存在 |
+
+---
+
+### `GET /users/search`
+
+按关键词搜索用户，用于审阅人分配时的用户查找。
+
+- **认证**：`leader` 及以上
+- **说明**：仅搜索已启用（`is_active=true`）的用户；按 `username` 和 `display_name` 进行 ILIKE 模糊匹配
+
+**Query 参数**：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `q` | string | ✅ | — | 搜索关键词，不能为空 |
+| `limit` | int | — | `20` | 每页数量，范围 1-100 |
+| `offset` | int | — | `0` | 偏移量 |
+
+**成功响应** `200`：分页包裹，`items` 为 `UserProfile[]`。
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | 缺少 `q` 参数或为空 |
+| `403` | 角色不满足 leader 及以上 |

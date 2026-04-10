@@ -52,7 +52,7 @@ pub(crate) async fn login(
     let role =
         Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
 
-    issue_tokens(&state, &user.user_id, &user.username, role).await
+    issue_tokens(&state, &user.user_id, &user.username, role, user.leader_expires_at).await
 }
 
 pub(crate) async fn refresh(
@@ -81,7 +81,7 @@ pub(crate) async fn refresh(
     let role =
         Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
 
-    issue_tokens(&state, &user.user_id, &user.username, role).await
+    issue_tokens(&state, &user.user_id, &user.username, role, user.leader_expires_at).await
 }
 
 pub(crate) async fn logout(
@@ -142,6 +142,31 @@ pub(crate) async fn change_password(
     }))
 }
 
+pub(crate) async fn search_users(
+    Extension(current): Extension<CurrentUser>,
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<super::models::UserSearchParams>,
+) -> ApiResult<crate::api::shared::pagination::Paginated<UserProfile>> {
+    if !current.role.is_leader_or_above() {
+        return Err(ApiError::forbidden("leader role or above required"));
+    }
+    let keyword = params.q.as_deref().unwrap_or("").trim();
+    if keyword.is_empty() {
+        return Err(ApiError::bad_request("q parameter is required and must not be empty"));
+    }
+    let limit = crate::api::shared::pagination::normalize_limit(params.limit);
+    let offset = crate::api::shared::pagination::normalize_offset(params.offset);
+    let (users, total) = super::queries::search_users(&state.pool, keyword, limit, offset)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(crate::api::shared::pagination::Paginated {
+        items: users,
+        total,
+        limit,
+        offset,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -151,8 +176,9 @@ async fn issue_tokens(
     user_id: &str,
     username: &str,
     role: Role,
+    leader_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> ApiResult<TokenResponse> {
-    let access = create_access_token(user_id, username, role, &state.jwt_secret)
+    let access = create_access_token(user_id, username, role, leader_expires_at, &state.jwt_secret)
         .map_err(|_| ApiError::internal("token creation failed"))?;
 
     let refresh = generate_refresh_token();

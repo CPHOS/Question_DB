@@ -33,6 +33,8 @@ pub(crate) async fn list_admin_questions(
                q.score,
                q.author,
                q.reviewers,
+               q.created_by::text AS created_by,
+               q.allow_auto_reviewer,
                to_char(q.created_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS created_at,
                to_char(q.updated_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS updated_at,
                to_char(q.deleted_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS deleted_at,
@@ -54,6 +56,18 @@ pub(crate) async fn list_admin_questions(
             )
             .push_bind(tag)
             .push(")");
+    }
+    if let Some(reviewer) = &params.reviewer {
+        builder
+            .push(" AND q.reviewers @> ARRAY[")
+            .push_bind(reviewer)
+            .push("]::text[]");
+    }
+    if let Some(assigned_reviewer_id) = &params.assigned_reviewer_id {
+        builder
+            .push(" AND EXISTS (SELECT 1 FROM question_reviews qr WHERE qr.question_id = q.question_id AND qr.reviewer_id = ")
+            .push_bind(assigned_reviewer_id)
+            .push("::uuid)");
     }
     if let Some(score_min) = params.score_min {
         builder.push(" AND q.score >= ").push_bind(score_min);
@@ -170,6 +184,7 @@ pub(crate) async fn list_admin_papers(
                p.title,
                p.subtitle,
                COUNT(pq_count.question_id) AS question_count,
+               p.created_by::text AS created_by,
                to_char(p.created_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS created_at,
                to_char(p.updated_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS updated_at,
                to_char(p.deleted_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS deleted_at,
@@ -238,7 +253,7 @@ pub(crate) async fn list_admin_papers(
 
     builder
         .push(
-            " GROUP BY p.paper_id, p.description, p.title, p.subtitle, p.created_at, p.updated_at, p.deleted_at, p.deleted_by",
+            " GROUP BY p.paper_id, p.description, p.title, p.subtitle, p.created_by, p.created_at, p.updated_at, p.deleted_at, p.deleted_by",
         )
         .push(" ORDER BY p.created_at DESC, p.paper_id LIMIT ")
         .push_bind(params.normalized_limit())

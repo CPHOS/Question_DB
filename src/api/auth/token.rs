@@ -20,6 +20,9 @@ pub(crate) struct Claims {
     pub(crate) sub: String, // user_id
     pub(crate) username: String,
     pub(crate) role: String,
+    /// Leader expiry timestamp (epoch seconds). Only present for leader role.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) leader_exp: Option<i64>,
     pub(crate) iat: i64,
     pub(crate) exp: i64,
 }
@@ -29,6 +32,7 @@ pub(crate) fn create_access_token(
     user_id: &str,
     username: &str,
     role: Role,
+    leader_expires_at: Option<chrono::DateTime<chrono::Utc>>,
     secret: &str,
 ) -> Result<String> {
     let now = Utc::now();
@@ -36,6 +40,7 @@ pub(crate) fn create_access_token(
         sub: user_id.to_string(),
         username: username.to_string(),
         role: role.as_str().to_string(),
+        leader_exp: leader_expires_at.map(|t| t.timestamp()),
         iat: now.timestamp(),
         exp: (now + Duration::seconds(ACCESS_TOKEN_LIFETIME_SECS)).timestamp(),
     };
@@ -82,11 +87,12 @@ mod tests {
     #[test]
     fn access_token_roundtrip() {
         let secret = "test-secret-key-at-least-32-bytes!";
-        let token = create_access_token("abc-123", "alice", Role::Admin, secret).unwrap();
+        let token = create_access_token("abc-123", "alice", Role::Admin, None, secret).unwrap();
         let claims = decode_access_token(&token, secret).unwrap();
         assert_eq!(claims.sub, "abc-123");
         assert_eq!(claims.username, "alice");
         assert_eq!(claims.role, "admin");
+        assert!(claims.leader_exp.is_none());
     }
 
     #[test]

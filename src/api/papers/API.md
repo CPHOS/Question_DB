@@ -2,8 +2,9 @@
 
 > 试卷的增删改查、附录文件替换和批量打包接口。
 
-- **`GET` 操作和 `POST /papers/bundles`**：需要 `viewer` 及以上角色
-- **其余写操作（`POST / PATCH / DELETE / PUT`）**：需要 `editor` 及以上角色
+- **`GET` 操作和 `POST /papers/bundles`**：需要任意已认证角色（`viewer` 及以上）
+- **`POST /papers`（创建）**：需要 `leader` / `bot` / `admin`（即 `can_create_paper` 能力）
+- **`PATCH / PUT / DELETE`（修改/删除）**：admin 可操作任何试卷；leader/bot 只能操作自己创建的试卷
 - 所有请求需携带 `Authorization: Bearer <access_token>` 头
 
 ---
@@ -19,6 +20,7 @@
   "title": "综合训练 2026 A 卷",
   "subtitle": "校内选拔 初版",
   "question_count": 5,
+  "created_by": "uuid or null",
   "created_at": "2026-01-01T00:00:00.000Z",
   "updated_at": "2026-01-01T00:00:00.000Z"
 }
@@ -31,6 +33,7 @@
 | `title` | string | 试卷标题 |
 | `subtitle` | string | 试卷副标题 |
 | `question_count` | int | 包含的题目数量 |
+| `created_by` | string(UUID) \| null | 创建者的 user_id，历史数据可能为 null |
 | `created_at` | string(ISO 8601) | 创建时间 |
 | `updated_at` | string(ISO 8601) | 更新时间 |
 
@@ -42,6 +45,7 @@
   "description": "综合训练试卷 A",
   "title": "综合训练 2026 A 卷",
   "subtitle": "校内选拔 初版",
+  "created_by": "uuid or null",
   "created_at": "2026-01-01T00:00:00.000Z",
   "updated_at": "2026-01-01T00:00:00.000Z",
   "questions": [ /* QuestionSummary[] — 按 sort_order 排序 */ ]
@@ -98,7 +102,7 @@
 
 创建试卷。
 
-- **认证**：`editor` 及以上
+- **认证**：`leader` / `bot` / `admin`（即 `can_create_paper` 能力）
 - **Content-Type**：`multipart/form-data`
 
 **Multipart 字段**：
@@ -160,7 +164,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 部分更新试卷元数据和题目列表。
 
-- **认证**：`editor` 及以上
+- **认证**：admin 可操作任何试卷；leader/bot 只能操作自己创建的试卷
 - **Content-Type**：`application/json`
 - **路径参数**：`paper_id` — UUID
 - **说明**：至少提供一个字段；已软删除试卷返回 `404`
@@ -202,7 +206,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 替换试卷的附录 zip 文件。
 
-- **认证**：`editor` 及以上
+- **认证**：admin 可操作任何试卷；leader/bot 只能操作自己创建的试卷
 - **Content-Type**：`multipart/form-data`
 - **路径参数**：`paper_id` — UUID
 - **大小限制**：≤ 20 MiB
@@ -238,7 +242,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 软删除试卷。
 
-- **认证**：`editor` 及以上
+- **认证**：admin 可操作任何试卷；leader/bot 只能操作自己创建的试卷
 - **路径参数**：`paper_id` — UUID
 
 **行为**：

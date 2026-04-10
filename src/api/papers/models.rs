@@ -16,6 +16,7 @@ pub struct PaperSummary {
     pub(crate) title: String,
     pub(crate) subtitle: String,
     pub(crate) question_count: i64,
+    pub(crate) created_by: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }
@@ -26,6 +27,7 @@ pub struct PaperDetail {
     pub(crate) description: String,
     pub(crate) title: String,
     pub(crate) subtitle: String,
+    pub(crate) created_by: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
     pub(crate) questions: Vec<QuestionSummary>,

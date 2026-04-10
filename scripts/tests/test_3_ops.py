@@ -60,7 +60,8 @@ def test_export_jsonl(api, state):
         },
     )
     resp = parse_json(body)
-    assert resp["exported_questions"] == state.total_question_count
+    actual_total = parse_json(api.get("/questions?limit=1")[1])["total"]
+    assert resp["exported_questions"] == actual_total
 
 
 def test_export_path_traversal(api):
@@ -105,6 +106,7 @@ def test_database_backup_download(api):
 
 
 def test_database_restore_round_trip(api, state):
+    pre_total = parse_json(api.get("/questions?limit=1")[1])["total"]
     api.download_file("/database/backup", DB_BACKUP_PATH)
 
     username = f"restore_probe_{uuid.uuid4().hex[:8]}"
@@ -134,7 +136,7 @@ def test_database_restore_round_trip(api, state):
         {"username": username, "password": password},
         expect=401,
     )
-    assert parse_json(api.get("/questions?limit=100")[1])["total"] == state.total_question_count
+    assert parse_json(api.get("/questions?limit=100")[1])["total"] == pre_total
     assert parse_json(api.get("/auth/me")[1])["role"] == "admin"
 
 
@@ -145,12 +147,11 @@ def test_database_restore_requires_non_empty_file(api):
 def test_viewer_can_download_bundles_but_not_ops(api, state):
     """Viewer can download bundles, but ops endpoints are admin-only."""
     question_id, paper_id = _ensure_bundle_fixture(api, state)
-    _, body, _ = api.post_json("/admin/users", {
+    viewer = api.ensure_user({
         "username": "bundle_viewer",
         "password": "viewer123",
         "role": "viewer",
     })
-    viewer = parse_json(body)
 
     saved = api._access_token
     try:

@@ -6,8 +6,9 @@ use anyhow::{anyhow, Result};
 use sqlx::{postgres::PgRow, query, PgPool, Postgres, QueryBuilder, Row};
 
 use super::models::{
-    validate_question_category, QuestionAssetRef, QuestionDetail, QuestionDifficulty,
-    QuestionDifficultyValue, QuestionPaperRef, QuestionSourceRef, QuestionSummary, QuestionsParams,
+    validate_question_category, DifficultyEditor, QuestionAssetRef, QuestionDetail,
+    QuestionDifficulty, QuestionDifficultyValue, QuestionPaperRef, QuestionSourceRef,
+    QuestionSummary, QuestionsParams,
 };
 use crate::api::shared::{
     pagination::{normalize_limit, normalize_offset},
@@ -45,6 +46,8 @@ impl QuestionsParams {
                    q.score,
                    q.author,
                    q.reviewers,
+                   q.created_by::text AS created_by,
+                   q.allow_auto_reviewer,
                    to_char(q.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS created_at,
                    to_char(q.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS updated_at,
                    COUNT(*) OVER() AS total_count
@@ -60,6 +63,18 @@ impl QuestionsParams {
                 .push(" AND EXISTS (SELECT 1 FROM question_tags qt WHERE qt.question_id = q.question_id AND qt.tag = ")
                 .push_bind(tag)
                 .push(")");
+        }
+        if let Some(reviewer) = &self.reviewer {
+            builder
+                .push(" AND q.reviewers @> ARRAY[")
+                .push_bind(reviewer)
+                .push("]::text[]");
+        }
+        if let Some(assigned_reviewer_id) = &self.assigned_reviewer_id {
+            builder
+                .push(" AND EXISTS (SELECT 1 FROM question_reviews qr WHERE qr.question_id = q.question_id AND qr.reviewer_id = ")
+                .push_bind(assigned_reviewer_id)
+                .push("::uuid)");
         }
         if let Some(score_min) = self.score_min {
             builder.push(" AND q.score >= ").push_bind(score_min);
@@ -200,6 +215,10 @@ pub(crate) fn validate_question_filters(params: &QuestionsParams) -> Result<()> 
     if let Some(v) = &params.updated_before {
         validate_timestamp_param("updated_before", v)?;
     }
+    if let Some(v) = &params.assigned_reviewer_id {
+        uuid::Uuid::parse_str(v.trim())
+            .map_err(|_| anyhow!("assigned_reviewer_id must be a valid UUID"))?;
+    }
     Ok(())
 }
 
@@ -245,21 +264,29 @@ pub(crate) async fn load_question_difficulties_batch(
         return Ok(HashMap::new());
     }
     let mut builder = QueryBuilder::<Postgres>::new(
-        "SELECT question_id::text AS question_id, algorithm_tag, score, notes FROM question_difficulties WHERE question_id IN (",
+        "SELECT qd.question_id::text AS question_id, qd.algorithm_tag, qd.score, qd.notes, qd.updated_by::text AS updated_by_id, u.username AS updated_by_username, u.display_name AS updated_by_display_name FROM question_difficulties qd LEFT JOIN users u ON u.user_id = qd.updated_by WHERE qd.question_id IN (",
     );
     push_uuid_list(&mut builder, question_ids);
-    builder.push(") ORDER BY question_id, algorithm_tag");
+    builder.push(") ORDER BY qd.question_id, qd.algorithm_tag");
 
     let rows = builder.build().fetch_all(pool).await?;
     let mut map: HashMap<String, BTreeMap<String, QuestionDifficultyValue>> = HashMap::new();
     for row in rows {
         let qid: String = row.get("question_id");
         let tag: String = row.get("algorithm_tag");
+        let updated_by = row.get::<Option<String>, _>("updated_by_id").map(|uid| {
+            DifficultyEditor {
+                user_id: uid,
+                username: row.get::<Option<String>, _>("updated_by_username").unwrap_or_default(),
+                display_name: row.get::<Option<String>, _>("updated_by_display_name").unwrap_or_default(),
+            }
+        });
         map.entry(qid).or_default().insert(
             tag,
             QuestionDifficultyValue {
                 score: row.get("score"),
                 notes: row.get("notes"),
+                updated_by,
             },
         );
     }
@@ -336,7 +363,7 @@ pub(crate) async fn load_question_difficulties(
     question_id: &str,
 ) -> Result<QuestionDifficulty, sqlx::Error> {
     query(
-        "SELECT algorithm_tag, score, notes FROM question_difficulties WHERE question_id = $1::uuid ORDER BY algorithm_tag",
+        "SELECT qd.algorithm_tag, qd.score, qd.notes, qd.updated_by::text AS updated_by_id, u.username AS updated_by_username, u.display_name AS updated_by_display_name FROM question_difficulties qd LEFT JOIN users u ON u.user_id = qd.updated_by WHERE qd.question_id = $1::uuid ORDER BY qd.algorithm_tag",
     )
     .bind(question_id)
     .fetch_all(pool)
@@ -345,11 +372,19 @@ pub(crate) async fn load_question_difficulties(
         entries: rows
             .into_iter()
             .map(|row| {
+                let updated_by = row.get::<Option<String>, _>("updated_by_id").map(|uid| {
+                    DifficultyEditor {
+                        user_id: uid,
+                        username: row.get::<Option<String>, _>("updated_by_username").unwrap_or_default(),
+                        display_name: row.get::<Option<String>, _>("updated_by_display_name").unwrap_or_default(),
+                    }
+                });
                 (
                     row.get("algorithm_tag"),
                     QuestionDifficultyValue {
                         score: row.get("score"),
                         notes: row.get("notes"),
+                        updated_by,
                     },
                 )
             })
@@ -404,6 +439,8 @@ pub(crate) fn map_question_summary(
         reviewers: row.get("reviewers"),
         tags,
         difficulty,
+        allow_auto_reviewer: row.get("allow_auto_reviewer"),
+        created_by: row.get("created_by"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -441,6 +478,8 @@ pub(crate) fn map_question_detail(
         reviewers: row.get("reviewers"),
         tags,
         difficulty,
+        allow_auto_reviewer: row.get("allow_auto_reviewer"),
+        created_by: row.get("created_by"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         assets,
