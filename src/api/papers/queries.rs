@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use sqlx::{postgres::PgRow, PgPool, Postgres, QueryBuilder, Row};
 
 use super::models::{validate_paper_filters, PapersParams};
-use crate::api::shared::{error::ValidationError, utils::{escape_ilike, validate_timestamp_param}};
+use crate::api::shared::{error::ValidationError, utils::escape_ilike};
 
 /// Returned from `build_query` with parameter bindings already attached.
 pub(crate) struct PapersQueryPlan<'a> {

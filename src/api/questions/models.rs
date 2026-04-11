@@ -508,6 +508,7 @@ mod tests {
                         super::QuestionDifficultyValue {
                             score: 7,
                             notes: Some("  calibrated  ".into()),
+                            updated_by: None,
                         },
                     ),
                     (
@@ -515,6 +516,7 @@ mod tests {
                         super::QuestionDifficultyValue {
                             score: 5,
                             notes: Some("   ".into()),
+                            updated_by: None,
                         },
                     ),
                 ]),
@@ -557,6 +559,7 @@ mod tests {
                     super::QuestionDifficultyValue {
                         score: 5,
                         notes: None,
+                        updated_by: None,
                     },
                 )]),
             },
@@ -580,8 +583,10 @@ mod tests {
             tags: Some(vec![" optics ".into(), "mechanics".into(), "optics".into()]),
             status: Some(" reviewed ".into()),
             difficulty: None,
+            delete_difficulty_tags: None,
             author: None,
             reviewers: None,
+            allow_auto_reviewer: None,
         };
 
         let normalized = request.normalize().expect("request should normalize");
@@ -595,12 +600,18 @@ mod tests {
     }
 
     #[test]
-    fn update_request_requires_human_difficulty() {
+    fn update_request_partial_difficulty_does_not_require_human() {
+        // normalize_partial (used for PATCH updates) does NOT require the
+        // `human` key — the handler enforces `human` only for Full access.
         let request: UpdateQuestionMetadataRequest =
             serde_json::from_str(r#"{"difficulty":{"ml":{"score":8}}}"#)
                 .expect("json should parse");
 
-        assert!(request.normalize().is_err());
+        let normalized = request
+            .normalize()
+            .expect("partial update should normalize without human");
+        let difficulty = normalized.difficulty.expect("difficulty update");
+        assert_eq!(difficulty["ml"].score, 8);
     }
 
     #[test]

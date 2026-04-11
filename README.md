@@ -6,6 +6,11 @@ Rust + Axum + PostgreSQL 题库服务。当前版本的核心流程是：
 2. 用一组有序题目引用创建试卷
 3. 删除走软删除，管理员可恢复记录并回收无引用 binary
 
+## API 文档
+
+- 各模块的 API 文档位于 `src/api/<module>/API.md`
+- 合并版文档：`docs/API.md`（由 `python scripts/build_api_doc.py` 自动生成）
+
 ## 项目架构
 
 ```text

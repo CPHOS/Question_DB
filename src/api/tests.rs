@@ -8,6 +8,8 @@ mod tests {
             paper_id: Some("550e8400-e29b-41d4-a716-446655440000".into()),
             category: Some("none".into()),
             tag: Some("mechanics".into()),
+            reviewer: None,
+            assigned_reviewer_id: None,
             score_min: None,
             score_max: None,
             difficulty_tag: Some("human".into()),
