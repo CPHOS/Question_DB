@@ -37,6 +37,7 @@ pub(crate) async fn require_auth(
     let current = CurrentUser {
         user_id: claims.sub,
         username: claims.username,
+        display_name: claims.display_name,
         role,
     };
 

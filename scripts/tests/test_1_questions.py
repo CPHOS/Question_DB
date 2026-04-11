@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import urllib.parse
 
 from .config import DOWNLOADS_DIR, INVALID_PAPER_UPLOAD_PATH
@@ -36,6 +35,38 @@ def assert_question_query(
         )
 
 
+def _apply_question_patch(api: ApiClient, question_id: str, patch: dict) -> None:
+    """Apply per-field PATCH / POST calls to match the spec['patch'] dict.
+
+    This replaces the old monolithic PATCH /questions/:id endpoint.
+    """
+    if "description" in patch:
+        api.patch_json(
+            f"/questions/{question_id}/description",
+            {"description": patch["description"]},
+        )
+    if "category" in patch:
+        api.patch_json(
+            f"/questions/{question_id}/category",
+            {"category": patch["category"]},
+        )
+    if "tags" in patch:
+        api.patch_json(
+            f"/questions/{question_id}/tags",
+            {"tags": patch["tags"]},
+        )
+    if "status" in patch:
+        api.patch_json(
+            f"/questions/{question_id}/status",
+            {"status": patch["status"]},
+        )
+    for d in patch.get("difficulties", []):
+        body_payload: dict = {"algorithm_tag": d["algorithm_tag"], "score": d["score"]}
+        if "notes" in d:
+            body_payload["notes"] = d["notes"]
+        api.post_json(f"/questions/{question_id}/difficulties", body_payload)
+
+
 def upload_real_questions(
     api: ApiClient,
     fixtures: list[RealQuestionFixture],
@@ -48,24 +79,25 @@ def upload_real_questions(
     fixtures_by_slug = {f.slug: f for f in fixtures}
 
     for f in fixtures:
+        # Upload with minimal fields (description + category + tags).
         _, body, _ = api.upload(
             "/questions",
             fields=build_question_fields(
                 description=f.patch["description"],
                 category=f.patch["category"],
                 tags=f.patch["tags"],
-                status=f.patch["status"],
-                difficulty=f.patch["difficulty"],
-                author=f.patch.get("author"),
-                reviewers=f.patch.get("reviewers"),
             ),
             file_path=f.upload_path,
         )
         resp = parse_json(body)
         assert resp["status"] == "imported"
         assert resp["imported_assets"] == f.asset_count
-        ids.append(resp["question_id"])
-        by_slug[f.slug] = resp["question_id"]
+        qid = resp["question_id"]
+        ids.append(qid)
+        by_slug[f.slug] = qid
+
+        # Apply remaining per-field patches (status, difficulties).
+        _apply_question_patch(api, qid, f.patch)
 
     # Spot-check first question
     detail = parse_json(api.get(f"/questions/{ids[0]}")[1])
@@ -91,21 +123,20 @@ def test_create_question_validation(api, state):
     spec = QUESTION_SPECS[0]
     zp = state.synthetic_zips[0]
 
-    # Missing required fields
+    # Missing required fields (no description)
     api.upload("/questions", fields=None, file_path=zp, expect=400)
+
+    # No file attached
     api.upload(
         "/questions",
         fields={"description": spec["create_description"]},
-        file_path=zp,
         expect=400,
     )
 
     # Invalid description (contains /)
     api.upload(
         "/questions",
-        fields=build_question_fields(
-            description="bad/name", difficulty=spec["create_difficulty"],
-        ),
+        fields=build_question_fields(description="bad/name"),
         file_path=zp,
         expect=400,
     )
@@ -116,7 +147,6 @@ def test_create_question_validation(api, state):
         fields=build_question_fields(
             description=spec["create_description"],
             category="X",
-            difficulty=spec["create_difficulty"],
         ),
         file_path=zp,
         expect=400,
@@ -127,38 +157,18 @@ def test_create_question_validation(api, state):
         "/questions",
         fields={
             "description": spec["create_description"],
-            "difficulty": json.dumps(spec["create_difficulty"]),
             "tags": '"not-an-array"',
         },
         file_path=zp,
         expect=400,
     )
 
-    # Difficulty: missing required human key
-    api.upload(
-        "/questions",
-        fields=build_question_fields(
-            description=spec["create_description"],
-            difficulty={"heuristic": {"score": 5}},
-        ),
-        file_path=zp,
-        expect=400,
-    )
-
-    # Difficulty: score out of range
-    api.upload(
-        "/questions",
-        fields=build_question_fields(
-            description=spec["create_description"],
-            difficulty={"human": {"score": 11}},
-        ),
-        file_path=zp,
-        expect=400,
-    )
-
 
 def test_create_synthetic_questions(api, state):
-    """Create 3 synthetic questions and store IDs in shared state."""
+    """Create 3 synthetic questions (upload with description+category+tags).
+
+    Then apply per-field patches (status, difficulties) via the new endpoints.
+    """
     for spec, zp in zip(QUESTION_SPECS, state.synthetic_zips):
         _, body, _ = api.upload(
             "/questions",
@@ -166,46 +176,106 @@ def test_create_synthetic_questions(api, state):
                 description=spec["patch"]["description"],
                 category=spec["patch"]["category"],
                 tags=spec["patch"]["tags"],
-                status=spec["patch"]["status"],
-                difficulty=spec["patch"]["difficulty"],
-                author=spec["patch"].get("author"),
-                reviewers=spec["patch"].get("reviewers"),
             ),
             file_path=zp,
         )
         resp = parse_json(body)
         assert resp["status"] == "imported"
-        state.q_ids.append(resp["question_id"])
-        state.q_by_slug[spec["slug"]] = resp["question_id"]
+        qid = resp["question_id"]
+        state.q_ids.append(qid)
+        state.q_by_slug[spec["slug"]] = qid
+
+        # Apply status via per-field endpoint
+        api.patch_json(
+            f"/questions/{qid}/status",
+            {"status": spec["patch"]["status"]},
+        )
+        # Apply difficulties one by one
+        for d in spec["patch"].get("difficulties", []):
+            body_payload: dict = {"algorithm_tag": d["algorithm_tag"], "score": d["score"]}
+            if "notes" in d:
+                body_payload["notes"] = d["notes"]
+            api.post_json(f"/questions/{qid}/difficulties", body_payload)
 
 
-def test_patch_questions(api, state):
-    """Patch validation + valid patches."""
+def test_per_field_patch_validation(api, state):
+    """Negative + positive cases for per-field PATCH endpoints."""
     qs = state.q_by_slug
 
-    # Empty patch body → 400
-    api.patch_json(f"/questions/{qs['mechanics']}", {}, expect=400)
-
-    # Difficulty without human → 400
+    # ── Description ──
+    # Empty description → 400
     api.patch_json(
-        f"/questions/{qs['mechanics']}",
-        {"difficulty": {"heuristic": {"score": 5}}},
+        f"/questions/{qs['mechanics']}/description",
+        {"description": ""},
+        expect=400,
+    )
+    # Description with / → 400
+    api.patch_json(
+        f"/questions/{qs['mechanics']}/description",
+        {"description": "bad/name"},
         expect=400,
     )
 
-    # Valid: clear tags + set multi-source difficulty
+    # ── Category ──
+    # Invalid category → 400
+    api.patch_json(
+        f"/questions/{qs['mechanics']}/category",
+        {"category": "X"},
+        expect=400,
+    )
+    # Empty string → 400
+    api.patch_json(
+        f"/questions/{qs['mechanics']}/category",
+        {"category": ""},
+        expect=400,
+    )
+
+    # ── Status ──
+    # Invalid status → 400
+    api.patch_json(
+        f"/questions/{qs['mechanics']}/status",
+        {"status": "bogus"},
+        expect=400,
+    )
+
+    # ── Tags: valid clear ──
     _, body, _ = api.patch_json(
-        f"/questions/{qs['thermal']}",
-        {
-            "tags": [],
-            "difficulty": {
-                "human": {"score": 5, "notes": ""},
-                "heuristic": {"score": 4, "notes": "direct model"},
-                "simulator": {"score": 6},
-            },
-        },
+        f"/questions/{qs['thermal']}/tags",
+        {"tags": []},
     )
     assert parse_json(body)["tags"] == []
+    # Restore tags
+    api.patch_json(
+        f"/questions/{qs['thermal']}/tags",
+        {"tags": ["thermal", "calorimetry"]},
+    )
+
+    # ── Difficulty: create duplicate → 409 ──
+    api.post_json(
+        f"/questions/{qs['mechanics']}/difficulties",
+        {"algorithm_tag": "human", "score": 4},
+        expect=409,
+    )
+
+    # ── Difficulty: update non-existent → 404 ──
+    api.patch_json(
+        f"/questions/{qs['mechanics']}/difficulties/nonexistent",
+        {"score": 5},
+        expect=404,
+    )
+
+    # ── Difficulty: score out of range → 400 ──
+    api.post_json(
+        f"/questions/{qs['mechanics']}/difficulties",
+        {"algorithm_tag": "bad_test", "score": 11},
+        expect=400,
+    )
+
+    # ── Difficulty: delete non-existent → 404 ──
+    api.delete(
+        f"/questions/{qs['mechanics']}/difficulties/nonexistent",
+        expect=404,
+    )
 
 
 def test_filter_questions(api, state):
@@ -319,38 +389,18 @@ def test_filter_questions(api, state):
 
 
 def test_filter_questions_by_reviewer(api, state):
-    """Filter questions by reviewer name."""
+    """Filter questions by reviewer name (reviewers array on questions table).
+
+    Synthetic questions start with reviewers=[] (no longer set on upload).
+    This test is now a negative check: none of the synthetic questions should
+    appear when filtering by a random reviewer name.
+    """
     qs = state.q_by_slug
 
-    # 李四 is a reviewer on mechanics
-    assert_question_query(
-        api,
-        "/questions?reviewer=%E6%9D%8E%E5%9B%9B",
-        [qs["mechanics"]],
-    )
-    # 钱七 is a reviewer on optics
-    assert_question_query(
-        api,
-        "/questions?reviewer=%E9%92%B1%E4%B8%83",
-        [qs["optics"]],
-    )
-    # 吴十 is a reviewer on thermal
-    assert_question_query(
-        api,
-        "/questions?reviewer=%E5%90%B4%E5%8D%81",
-        [qs["thermal"]],
-    )
     # Non-existent reviewer → none of our synthetic questions
     page = parse_json(api.get("/questions?reviewer=nobody")[1])
     for qid in qs.values():
         assert qid not in {i["question_id"] for i in page["items"]}
-
-    # Combine reviewer + category
-    assert_question_query(
-        api,
-        "/questions?reviewer=%E6%9D%8E%E5%9B%9B&category=T",
-        [qs["mechanics"]],
-    )
 
 
 def test_list_question_tags(api, state):
@@ -408,6 +458,7 @@ def test_question_bundle_validation(api):
 
 
 def test_question_file_replacement(api, state):
+    """File replacement resets difficulty, status, and author."""
     mid = state.q_by_slug["mechanics"]
     original = parse_json(api.get(f"/questions/{mid}")[1])
     replacement_zip = state.synthetic_zips[1]
@@ -439,17 +490,30 @@ def test_question_file_replacement(api, state):
     assert resp["status"] == "replaced"
     assert resp["question_id"] == mid
 
-    # Verify metadata preserved, file changed
+    # After replacement: file changed, difficulty cleared, status reset to "none"
     replaced = parse_json(api.get(f"/questions/{mid}")[1])
     assert replaced["source"]["tex"] == QUESTION_SPECS[1]["tex_name"]
-    assert replaced["category"] == original["category"]
-    assert replaced["tags"] == original["tags"]
-    assert replaced["difficulty"] == original["difficulty"]
-    assert replaced["status"] == original["status"]
-    assert replaced["description"] == original["description"]
+    assert replaced["difficulty"] == {}  # cleared
+    assert replaced["status"] == "none"  # reset
     assert replaced["score"] == original["score"]  # same tex template, score preserved
     assert replaced["tex_object_id"] != original["tex_object_id"]
     assert replaced["updated_at"] != original["updated_at"]
+    # description, category, and tags are preserved
+    assert replaced["description"] == original["description"]
+    assert replaced["category"] == original["category"]
+    assert replaced["tags"] == original["tags"]
+
+    # Re-apply difficulties so subsequent filter tests work
+    for d in QUESTION_SPECS[0]["patch"]["difficulties"]:
+        body_payload: dict = {"algorithm_tag": d["algorithm_tag"], "score": d["score"]}
+        if "notes" in d:
+            body_payload["notes"] = d["notes"]
+        api.post_json(f"/questions/{mid}/difficulties", body_payload)
+    # Re-apply status
+    api.patch_json(
+        f"/questions/{mid}/status",
+        {"status": QUESTION_SPECS[0]["patch"]["status"]},
+    )
 
 
 def test_upload_real_theory_questions(api, state):
@@ -662,7 +726,7 @@ def test_filter_assigned_reviewer_id_for_my_reviews(api, state):
 
 
 def test_difficulty_updated_by_present(api, state):
-    """Difficulty values include updated_by with editor info after PATCH."""
+    """Difficulty values include updated_by with editor info after creation via POST."""
     question_id = state.q_ids[0]
 
     # Get the question detail and check difficulty updated_by
@@ -670,7 +734,7 @@ def test_difficulty_updated_by_present(api, state):
     detail = parse_json(body)
     difficulty = detail["difficulty"]
 
-    # After the patch phase, difficulty has been set by admin
+    # After the create+patch phase, difficulty has been set by admin
     assert "human" in difficulty
     human = difficulty["human"]
     assert "updated_by" in human
@@ -699,14 +763,13 @@ def test_difficulty_updated_by_tracks_editor(api, state):
             {"reviewer_id": reviewer_id},
         )
 
-        # Login as reviewer and add a new difficulty tag
+        # Login as reviewer and add a new difficulty tag via POST
         saved = api._access_token
         api.login("e2e_diff_editor", "editor12345")
-        api.patch_json(f"/questions/{question_id}", {
-            "difficulty": {
-                "e2e_test_tag": {"score": 3, "notes": "test tag"},
-            },
-        })
+        api.post_json(
+            f"/questions/{question_id}/difficulties",
+            {"algorithm_tag": "e2e_test_tag", "score": 3, "notes": "test tag"},
+        )
 
         # Check updated_by on the new tag
         _, body, _ = api.get(f"/questions/{question_id}")
@@ -719,19 +782,7 @@ def test_difficulty_updated_by_tracks_editor(api, state):
 
         # Cleanup: switch back to admin and delete the tag
         api.set_token(saved)
-        # Re-patch as admin with full replace (removes e2e_test_tag)
-        _, body2, _ = api.get(f"/questions/{question_id}")
-        current_diff = parse_json(body2)["difficulty"]
-        # Build new difficulty without e2e_test_tag, keeping human
-        clean_diff = {}
-        for k, v in current_diff.items():
-            if k != "e2e_test_tag":
-                clean_diff[k] = {"score": v["score"]}
-                if v.get("notes"):
-                    clean_diff[k]["notes"] = v["notes"]
-        api.patch_json(f"/questions/{question_id}", {
-            "difficulty": clean_diff,
-        })
+        api.delete(f"/questions/{question_id}/difficulties/e2e_test_tag")
 
         api.delete(f"/questions/{question_id}/reviewers/{reviewer_id}")
     finally:

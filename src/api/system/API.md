@@ -48,3 +48,19 @@
   "error": "database is unreachable"
 }
 ```
+
+---
+
+### `GET /version`
+
+获取后端版本号（来自 Cargo.toml）。
+
+- **认证**：无需
+
+**成功响应** `200`：
+
+```json
+{
+  "version": "0.1.0"
+}
+```

@@ -32,12 +32,6 @@ QUESTION_SPECS = [
             "A cart slides on an incline and collides elastically with a block.",
         ),
         "create_description": "mechanics benchmark alpha",
-        "create_difficulty": {
-            "human": {
-                "score": 2,
-                "notes": "import baseline",
-            }
-        },
         "assets": {
             "assets/diagram.txt": "incline-figure",
             "assets/data.csv": "time,velocity\n0,0\n1,3\n",
@@ -47,13 +41,11 @@ QUESTION_SPECS = [
             "description": "mechanics benchmark alpha",
             "tags": ["mechanics", "kinematics"],
             "status": "reviewed",
-            "author": "张三",
-            "reviewers": ["李四", "王五"],
-            "difficulty": {
-                "human": {"score": 4, "notes": "warm-up"},
-                "heuristic": {"score": 5, "notes": "fast estimate"},
-                "ml": {"score": 3},
-            },
+            "difficulties": [
+                {"algorithm_tag": "human", "score": 4, "notes": "warm-up"},
+                {"algorithm_tag": "heuristic", "score": 5, "notes": "fast estimate"},
+                {"algorithm_tag": "ml", "score": 3},
+            ],
         },
     },
     {
@@ -65,12 +57,6 @@ QUESTION_SPECS = [
             "A lens forms an image on a screen and the magnification is to be derived.",
         ),
         "create_description": "optics bundle beta",
-        "create_difficulty": {
-            "human": {
-                "score": 6,
-                "notes": "import triage",
-            }
-        },
         "assets": {
             "assets/lens.txt": "thin-lens",
             "assets/ray-path.txt": "ray-diagram",
@@ -80,14 +66,12 @@ QUESTION_SPECS = [
             "description": "optics bundle beta",
             "tags": ["optics", "lenses"],
             "status": "used",
-            "author": "赵六",
-            "reviewers": ["钱七", "孙八"],
-            "difficulty": {
-                "human": {"score": 7, "notes": "competition-ready"},
-                "heuristic": {"score": 6, "notes": "geometry-heavy"},
-                "ml": {"score": 8, "notes": "vision model struggle"},
-                "symbolic": {"score": 9},
-            },
+            "difficulties": [
+                {"algorithm_tag": "human", "score": 7, "notes": "competition-ready"},
+                {"algorithm_tag": "heuristic", "score": 6, "notes": "geometry-heavy"},
+                {"algorithm_tag": "ml", "score": 8, "notes": "vision model struggle"},
+                {"algorithm_tag": "symbolic", "score": 9},
+            ],
         },
     },
     {
@@ -99,11 +83,6 @@ QUESTION_SPECS = [
             "Two bodies exchange heat until they reach thermal equilibrium.",
         ),
         "create_description": "热学标定 gamma",
-        "create_difficulty": {
-            "human": {
-                "score": 5,
-            }
-        },
         "assets": {
             "assets/table.txt": "material,c\nCu,385\nAl,900\n",
             "assets/reference.txt": "thermal-reference",
@@ -113,13 +92,11 @@ QUESTION_SPECS = [
             "description": "热学标定 gamma",
             "tags": ["thermal", "calorimetry"],
             "status": "none",
-            "author": "周九",
-            "reviewers": ["吴十"],
-            "difficulty": {
-                "human": {"score": 5, "notes": ""},
-                "heuristic": {"score": 4, "notes": "direct model"},
-                "simulator": {"score": 6},
-            },
+            "difficulties": [
+                {"algorithm_tag": "human", "score": 5},
+                {"algorithm_tag": "heuristic", "score": 4, "notes": "direct model"},
+                {"algorithm_tag": "simulator", "score": 6},
+            ],
         },
     },
 ]

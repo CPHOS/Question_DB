@@ -25,10 +25,6 @@ def _ensure_bundle_fixture(api, state) -> tuple[str, str]:
                 description=spec["patch"]["description"],
                 category=spec["patch"]["category"],
                 tags=spec["patch"]["tags"],
-                status=spec["patch"]["status"],
-                difficulty=spec["patch"]["difficulty"],
-                author=spec["patch"].get("author"),
-                reviewers=spec["patch"].get("reviewers"),
             ),
             file_path=state.synthetic_zips[0],
         )[1]

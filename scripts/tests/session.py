@@ -52,27 +52,16 @@ def question_ids_from_body(body: str) -> list[str]:
 def build_question_fields(
     *,
     description: str,
-    difficulty: dict,
     category: str | None = None,
     tags: list[str] | None = None,
-    status: str | None = None,
-    author: str | None = None,
-    reviewers: list[str] | None = None,
 ) -> dict[str, str]:
     fields: dict[str, str] = {
         "description": description,
-        "difficulty": json.dumps(difficulty, ensure_ascii=False),
     }
     if category is not None:
         fields["category"] = category
     if tags is not None:
         fields["tags"] = json.dumps(tags, ensure_ascii=False)
-    if status is not None:
-        fields["status"] = status
-    if author is not None:
-        fields["author"] = author
-    if reviewers is not None:
-        fields["reviewers"] = json.dumps(reviewers, ensure_ascii=False)
     return fields
 
 

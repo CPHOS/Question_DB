@@ -3,9 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::api::shared::utils::{
-    normalize_bundle_description, normalize_optional_bundle_description,
-};
+use crate::api::shared::utils::normalize_bundle_description;
 
 pub(crate) const QUESTION_CATEGORIES: [&str; 3] = ["none", "T", "E"];
 pub(crate) const QUESTION_STATUSES: [&str; 3] = ["none", "reviewed", "used"];
@@ -135,65 +133,54 @@ pub(crate) struct CreateQuestionRequest {
     pub(crate) description: String,
     pub(crate) category: Option<String>,
     pub(crate) tags: Option<Vec<String>>,
-    pub(crate) status: Option<String>,
-    pub(crate) difficulty: QuestionDifficulty,
-    pub(crate) author: Option<String>,
-    pub(crate) reviewers: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct UpdateQuestionMetadataRequest {
-    #[serde(default)]
-    pub(crate) category: Option<String>,
-    #[serde(default)]
-    pub(crate) description: Option<Option<String>>,
-    #[serde(default)]
-    pub(crate) tags: Option<Vec<String>>,
-    #[serde(default)]
-    pub(crate) status: Option<String>,
-    #[serde(default)]
-    pub(crate) difficulty: Option<QuestionDifficulty>,
-    #[serde(default)]
-    pub(crate) delete_difficulty_tags: Option<Vec<String>>,
-    #[serde(default)]
-    pub(crate) author: Option<String>,
-    #[serde(default)]
-    pub(crate) reviewers: Option<Vec<String>>,
-    #[serde(default)]
-    pub(crate) allow_auto_reviewer: Option<bool>,
+pub(crate) struct UpdateDescriptionRequest {
+    pub(crate) description: String,
 }
 
-#[derive(Debug)]
-pub(crate) struct NormalizedQuestionMetadataUpdate {
-    pub(crate) category: Option<String>,
-    pub(crate) description: Option<String>,
-    pub(crate) tags: Option<Vec<String>>,
-    pub(crate) status: Option<String>,
-    pub(crate) difficulty: Option<NormalizedQuestionDifficulty>,
-    pub(crate) delete_difficulty_tags: Option<Vec<String>>,
-    pub(crate) author: Option<String>,
-    pub(crate) reviewers: Option<Vec<String>>,
-    pub(crate) allow_auto_reviewer: Option<bool>,
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UpdateCategoryRequest {
+    pub(crate) category: String,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct NormalizedQuestionDifficultyValue {
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UpdateTagsRequest {
+    pub(crate) tags: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UpdateStatusRequest {
+    pub(crate) status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CreateDifficultyRequest {
+    pub(crate) algorithm_tag: String,
     pub(crate) score: i32,
+    #[serde(default)]
     pub(crate) notes: Option<String>,
 }
 
-pub(crate) type NormalizedQuestionDifficulty = BTreeMap<String, NormalizedQuestionDifficultyValue>;
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UpdateDifficultyRequest {
+    pub(crate) score: i32,
+    #[serde(default)]
+    pub(crate) notes: Option<String>,
+}
 
 #[derive(Debug)]
 pub(crate) struct NormalizedCreateQuestionRequest {
     pub(crate) description: String,
     pub(crate) category: String,
     pub(crate) tags: Vec<String>,
-    pub(crate) status: String,
-    pub(crate) difficulty: NormalizedQuestionDifficulty,
-    pub(crate) author: String,
-    pub(crate) reviewers: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -246,113 +233,72 @@ impl CreateQuestionRequest {
             .map(normalize_tags)
             .transpose()?
             .unwrap_or_default();
-        let status = self
-            .status
-            .map(|value| normalize_status(&value))
-            .transpose()?
-            .unwrap_or_else(|| "none".to_string());
-        let difficulty = self.difficulty.normalize()?;
-        let author = normalize_optional_author(self.author);
-        let reviewers = self
-            .reviewers
-            .map(normalize_reviewers)
-            .transpose()?
-            .unwrap_or_default();
 
         Ok(NormalizedCreateQuestionRequest {
             description,
             category,
             tags,
-            status,
-            difficulty,
-            author,
-            reviewers,
         })
     }
 }
 
-impl UpdateQuestionMetadataRequest {
-    pub(crate) fn normalize(self) -> Result<NormalizedQuestionMetadataUpdate> {
-        if self.category.is_none()
-            && self.description.is_none()
-            && self.tags.is_none()
-            && self.status.is_none()
-            && self.difficulty.is_none()
-            && self.delete_difficulty_tags.is_none()
-            && self.author.is_none()
-            && self.reviewers.is_none()
-            && self.allow_auto_reviewer.is_none()
-        {
-            return Err(anyhow!(
-                "request body must include at least one of: category, description, tags, status, difficulty, delete_difficulty_tags, author, reviewers, allow_auto_reviewer"
-            ));
+impl UpdateDescriptionRequest {
+    pub(crate) fn normalize(&self) -> Result<String> {
+        normalize_required_plaintext_value("description", &self.description)
+    }
+}
+
+impl UpdateCategoryRequest {
+    pub(crate) fn normalize(&self) -> Result<String> {
+        normalize_category(&self.category)
+    }
+}
+
+impl UpdateTagsRequest {
+    pub(crate) fn normalize(self) -> Result<Vec<String>> {
+        normalize_tags(self.tags)
+    }
+}
+
+impl UpdateStatusRequest {
+    pub(crate) fn normalize(&self) -> Result<String> {
+        normalize_status(&self.status)
+    }
+}
+
+impl CreateDifficultyRequest {
+    pub(crate) fn normalize(&self) -> Result<(String, i32, Option<String>)> {
+        let tag = self.algorithm_tag.trim().to_string();
+        if tag.is_empty() {
+            bail!("algorithm_tag must not be empty");
         }
+        if !(1..=10).contains(&self.score) {
+            bail!("score must be between 1 and 10");
+        }
+        let notes = self.notes.as_ref().and_then(|n| {
+            let trimmed = n.trim().to_string();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        });
+        Ok((tag, self.score, notes))
+    }
+}
 
-        let category = self
-            .category
-            .map(|value| normalize_category(&value))
-            .transpose()?;
-        let description = self
-            .description
-            .map(|value| normalize_required_plaintext("description", value))
-            .transpose()?;
-        let tags = self.tags.map(normalize_tags).transpose()?;
-        let status = self
-            .status
-            .map(|value| normalize_status(&value))
-            .transpose()?;
-        let difficulty = self
-            .difficulty
-            .map(QuestionDifficulty::normalize_partial)
-            .transpose()?;
-        let delete_difficulty_tags = self
-            .delete_difficulty_tags
-            .map(|tags| {
-                let mut normalized = Vec::new();
-                for tag in tags {
-                    let trimmed = tag.trim().to_string();
-                    if trimmed.is_empty() {
-                        bail!("delete_difficulty_tags must not contain empty strings");
-                    }
-                    if trimmed == "human" {
-                        bail!("cannot delete the human difficulty tag");
-                    }
-                    normalized.push(trimmed);
-                }
-                Ok(normalized)
-            })
-            .transpose()?;
-        let author = self.author.map(|v| v.trim().to_string());
-        let reviewers = self.reviewers.map(normalize_reviewers).transpose()?;
-
-        Ok(NormalizedQuestionMetadataUpdate {
-            category,
-            description,
-            tags,
-            status,
-            difficulty,
-            delete_difficulty_tags,
-            author,
-            reviewers,
-            allow_auto_reviewer: self.allow_auto_reviewer,
-        })
+impl UpdateDifficultyRequest {
+    pub(crate) fn normalize(&self) -> Result<(i32, Option<String>)> {
+        if !(1..=10).contains(&self.score) {
+            bail!("score must be between 1 and 10");
+        }
+        let notes = self.notes.as_ref().and_then(|n| {
+            let trimmed = n.trim().to_string();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        });
+        Ok((self.score, notes))
     }
 }
 
 impl QuestionBundleRequest {
     pub(crate) fn normalize(self) -> Result<Vec<String>> {
         normalize_bundle_ids("question_ids", self.question_ids)
-    }
-}
-
-impl QuestionDifficulty {
-    pub(crate) fn normalize(self) -> Result<NormalizedQuestionDifficulty> {
-        normalize_difficulty_entries(self.entries)
-    }
-
-    /// Normalize without requiring `human` key (for partial updates by reviewers).
-    pub(crate) fn normalize_partial(self) -> Result<NormalizedQuestionDifficulty> {
-        normalize_difficulty_entries_partial(self.entries)
     }
 }
 
@@ -368,8 +314,25 @@ fn normalize_status(value: &str) -> Result<String> {
     Ok(normalized)
 }
 
-fn normalize_required_plaintext(field: &str, value: Option<String>) -> Result<String> {
-    normalize_optional_bundle_description(field, value)
+fn normalize_required_plaintext_value(field: &str, value: &str) -> Result<String> {
+    normalize_bundle_description(field, value)
+}
+
+fn normalize_tags(values: Vec<String>) -> Result<Vec<String>> {
+    let mut normalized = Vec::with_capacity(values.len());
+    let mut seen = HashSet::new();
+
+    for value in values {
+        let tag = value.trim().to_string();
+        if tag.is_empty() {
+            bail!("tags must not contain empty strings");
+        }
+        if seen.insert(tag.clone()) {
+            normalized.push(tag);
+        }
+    }
+
+    Ok(normalized)
 }
 
 fn normalize_bundle_ids(field_name: &str, ids: Vec<String>) -> Result<Vec<String>> {
@@ -395,134 +358,16 @@ fn normalize_bundle_ids(field_name: &str, ids: Vec<String>) -> Result<Vec<String
     Ok(normalized)
 }
 
-fn normalize_required_plaintext_value(field: &str, value: &str) -> Result<String> {
-    normalize_bundle_description(field, value)
-}
-
-fn normalize_optional_plaintext(value: String) -> Option<String> {
-    let trimmed = value.trim().to_string();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed)
-    }
-}
-
-fn normalize_optional_author(value: Option<String>) -> String {
-    value.map(|v| v.trim().to_string()).unwrap_or_default()
-}
-
-fn normalize_reviewers(values: Vec<String>) -> Result<Vec<String>> {
-    let mut normalized = Vec::with_capacity(values.len());
-    let mut seen = HashSet::new();
-
-    for value in values {
-        let name = value.trim().to_string();
-        if name.is_empty() {
-            bail!("reviewers must not contain empty strings");
-        }
-        if seen.insert(name.clone()) {
-            normalized.push(name);
-        }
-    }
-
-    Ok(normalized)
-}
-
-fn normalize_tags(values: Vec<String>) -> Result<Vec<String>> {
-    let mut normalized = Vec::with_capacity(values.len());
-    let mut seen = HashSet::new();
-
-    for value in values {
-        let tag = value.trim().to_string();
-        if tag.is_empty() {
-            bail!("tags must not contain empty strings");
-        }
-        if seen.insert(tag.clone()) {
-            normalized.push(tag);
-        }
-    }
-
-    Ok(normalized)
-}
-
-fn normalize_difficulty_entries(
-    values: BTreeMap<String, QuestionDifficultyValue>,
-) -> Result<NormalizedQuestionDifficulty> {
-    let normalized = normalize_difficulty_entries_partial(values)?;
-
-    if !normalized.contains_key("human") {
-        bail!("difficulty must include a human entry");
-    }
-
-    Ok(normalized)
-}
-
-fn normalize_difficulty_entries_partial(
-    values: BTreeMap<String, QuestionDifficultyValue>,
-) -> Result<NormalizedQuestionDifficulty> {
-    let mut normalized = BTreeMap::new();
-
-    for (name, value) in values {
-        let tag = name.trim().to_string();
-        if tag.is_empty() {
-            bail!("difficulty keys must not be empty");
-        }
-        if !(1..=10).contains(&value.score) {
-            bail!("difficulty.{tag}.score must be between 1 and 10");
-        }
-        let notes = value.notes.and_then(normalize_optional_plaintext);
-        if normalized
-            .insert(
-                tag.clone(),
-                NormalizedQuestionDifficultyValue {
-                    score: value.score,
-                    notes,
-                },
-            )
-            .is_some()
-        {
-            bail!("difficulty tags must be unique after trimming");
-        }
-    }
-
-    Ok(normalized)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{CreateQuestionRequest, QuestionDifficulty, UpdateQuestionMetadataRequest};
-    use std::collections::BTreeMap;
+    use super::*;
 
     #[test]
-    fn create_request_supports_full_metadata_with_defaults() {
+    fn create_request_normalizes_with_defaults() {
         let request = CreateQuestionRequest {
             description: "  demo note  ".into(),
             category: Some(" T ".into()),
             tags: Some(vec![" optics ".into(), "mechanics".into(), "optics".into()]),
-            status: Some(" reviewed ".into()),
-            difficulty: QuestionDifficulty {
-                entries: BTreeMap::from([
-                    (
-                        " human ".into(),
-                        super::QuestionDifficultyValue {
-                            score: 7,
-                            notes: Some("  calibrated  ".into()),
-                            updated_by: None,
-                        },
-                    ),
-                    (
-                        "heuristic".into(),
-                        super::QuestionDifficultyValue {
-                            score: 5,
-                            notes: Some("   ".into()),
-                            updated_by: None,
-                        },
-                    ),
-                ]),
-            },
-            author: Some(" 张三 ".into()),
-            reviewers: Some(vec![" 李四 ".into(), "王五".into()]),
         };
 
         let normalized = request.normalize().expect("request should normalize");
@@ -532,116 +377,130 @@ mod tests {
             normalized.tags,
             vec!["optics".to_string(), "mechanics".to_string()]
         );
-        assert_eq!(normalized.status, "reviewed");
-        assert_eq!(normalized.difficulty["human"].score, 7);
-        assert_eq!(
-            normalized.difficulty["human"].notes.as_deref(),
-            Some("calibrated")
-        );
-        assert_eq!(normalized.difficulty["heuristic"].notes, None);
-        assert_eq!(normalized.author, "张三");
-        assert_eq!(
-            normalized.reviewers,
-            vec!["李四".to_string(), "王五".to_string()]
-        );
     }
 
     #[test]
-    fn create_request_defaults_optional_metadata() {
+    fn create_request_defaults_optional_fields() {
         let request = CreateQuestionRequest {
             description: "demo note".into(),
             category: None,
             tags: None,
-            status: None,
-            difficulty: QuestionDifficulty {
-                entries: BTreeMap::from([(
-                    "human".into(),
-                    super::QuestionDifficultyValue {
-                        score: 5,
-                        notes: None,
-                        updated_by: None,
-                    },
-                )]),
-            },
-            author: None,
-            reviewers: None,
         };
 
         let normalized = request.normalize().expect("request should normalize");
         assert_eq!(normalized.category, "none");
         assert!(normalized.tags.is_empty());
-        assert_eq!(normalized.status, "none");
-        assert_eq!(normalized.author, "");
-        assert!(normalized.reviewers.is_empty());
     }
 
     #[test]
-    fn update_request_normalizes_and_deduplicates_tags() {
-        let request = UpdateQuestionMetadataRequest {
-            category: Some(" T ".into()),
-            description: Some(Some("  demo note  ".into())),
-            tags: Some(vec![" optics ".into(), "mechanics".into(), "optics".into()]),
-            status: Some(" reviewed ".into()),
-            difficulty: None,
-            delete_difficulty_tags: None,
-            author: None,
-            reviewers: None,
-            allow_auto_reviewer: None,
+    fn update_description_normalizes_whitespace() {
+        let req = UpdateDescriptionRequest {
+            description: "  hello world  ".into(),
         };
-
-        let normalized = request.normalize().expect("request should normalize");
-        assert_eq!(normalized.category.as_deref(), Some("T"));
-        assert_eq!(normalized.description.as_deref(), Some("demo note"));
-        assert_eq!(
-            normalized.tags.expect("tags should be present"),
-            vec!["optics".to_string(), "mechanics".to_string()]
-        );
-        assert_eq!(normalized.status.as_deref(), Some("reviewed"));
+        assert_eq!(req.normalize().unwrap(), "hello world");
     }
 
     #[test]
-    fn update_request_partial_difficulty_does_not_require_human() {
-        // normalize_partial (used for PATCH updates) does NOT require the
-        // `human` key — the handler enforces `human` only for Full access.
-        let request: UpdateQuestionMetadataRequest =
-            serde_json::from_str(r#"{"difficulty":{"ml":{"score":8}}}"#)
-                .expect("json should parse");
-
-        let normalized = request
-            .normalize()
-            .expect("partial update should normalize without human");
-        let difficulty = normalized.difficulty.expect("difficulty update");
-        assert_eq!(difficulty["ml"].score, 8);
+    fn update_description_rejects_empty() {
+        let req = UpdateDescriptionRequest {
+            description: "   ".into(),
+        };
+        assert!(req.normalize().is_err());
     }
 
     #[test]
-    fn update_request_normalizes_difficulty_notes() {
-        let request: UpdateQuestionMetadataRequest = serde_json::from_str(
-            r#"{
-                "difficulty":{
-                    " human ":{"score":7,"notes":"  calibrated  "},
-                    "heuristic":{"score":5,"notes":"   "}
-                }
-            }"#,
-        )
-        .expect("json should parse");
+    fn update_category_validates() {
+        let req = UpdateCategoryRequest {
+            category: " T ".into(),
+        };
+        assert_eq!(req.normalize().unwrap(), "T");
 
-        let normalized = request.normalize().expect("request should normalize");
-        let difficulty = normalized.difficulty.expect("difficulty update");
-        assert_eq!(difficulty["human"].score, 7);
-        assert_eq!(difficulty["human"].notes.as_deref(), Some("calibrated"));
-        assert_eq!(difficulty["heuristic"].score, 5);
-        assert_eq!(difficulty["heuristic"].notes, None);
+        let bad = UpdateCategoryRequest {
+            category: "invalid".into(),
+        };
+        assert!(bad.normalize().is_err());
     }
 
     #[test]
-    fn update_request_rejects_empty_or_null_description() {
-        let empty_request: UpdateQuestionMetadataRequest =
-            serde_json::from_str(r#"{"description":""}"#).expect("json should parse");
-        let null_request: UpdateQuestionMetadataRequest =
-            serde_json::from_str(r#"{"description":null}"#).expect("json should parse");
+    fn update_tags_deduplicates_and_trims() {
+        let req = UpdateTagsRequest {
+            tags: vec![" optics ".into(), "mechanics".into(), "optics".into()],
+        };
+        let tags = req.normalize().unwrap();
+        assert_eq!(tags, vec!["optics".to_string(), "mechanics".to_string()]);
+    }
 
-        assert!(empty_request.normalize().is_err());
-        assert!(null_request.normalize().is_err());
+    #[test]
+    fn update_tags_rejects_empty_strings() {
+        let req = UpdateTagsRequest {
+            tags: vec!["good".into(), "  ".into()],
+        };
+        assert!(req.normalize().is_err());
+    }
+
+    #[test]
+    fn update_status_validates() {
+        let req = UpdateStatusRequest {
+            status: " reviewed ".into(),
+        };
+        assert_eq!(req.normalize().unwrap(), "reviewed");
+
+        let bad = UpdateStatusRequest {
+            status: "invalid".into(),
+        };
+        assert!(bad.normalize().is_err());
+    }
+
+    #[test]
+    fn create_difficulty_normalizes() {
+        let req = CreateDifficultyRequest {
+            algorithm_tag: " human ".into(),
+            score: 7,
+            notes: Some("  calibrated  ".into()),
+        };
+        let (tag, score, notes) = req.normalize().unwrap();
+        assert_eq!(tag, "human");
+        assert_eq!(score, 7);
+        assert_eq!(notes.as_deref(), Some("calibrated"));
+    }
+
+    #[test]
+    fn create_difficulty_rejects_invalid_score() {
+        let req = CreateDifficultyRequest {
+            algorithm_tag: "human".into(),
+            score: 11,
+            notes: None,
+        };
+        assert!(req.normalize().is_err());
+    }
+
+    #[test]
+    fn create_difficulty_rejects_empty_tag() {
+        let req = CreateDifficultyRequest {
+            algorithm_tag: "  ".into(),
+            score: 5,
+            notes: None,
+        };
+        assert!(req.normalize().is_err());
+    }
+
+    #[test]
+    fn update_difficulty_normalizes() {
+        let req = UpdateDifficultyRequest {
+            score: 8,
+            notes: Some("   ".into()),
+        };
+        let (score, notes) = req.normalize().unwrap();
+        assert_eq!(score, 8);
+        assert_eq!(notes, None); // whitespace-only becomes None
+    }
+
+    #[test]
+    fn update_difficulty_rejects_invalid_score() {
+        let req = UpdateDifficultyRequest {
+            score: 0,
+            notes: None,
+        };
+        assert!(req.normalize().is_err());
     }
 }

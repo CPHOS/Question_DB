@@ -2,7 +2,7 @@ use axum::{extract::State, Json};
 use sqlx::query;
 
 use crate::api::{
-    shared::error::{ApiError, ApiResult, HealthResponse},
+    shared::error::{ApiError, ApiResult, HealthResponse, VersionResponse},
     AppState,
 };
 
@@ -15,4 +15,10 @@ pub(crate) async fn health(State(state): State<AppState>) -> ApiResult<HealthRes
         status: "ok",
         service: "qb_api_rust",
     }))
+}
+
+pub(crate) async fn version() -> Json<VersionResponse> {
+    Json(VersionResponse {
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }

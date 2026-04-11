@@ -14,7 +14,7 @@ use uuid::Uuid;
 use zip::ZipArchive;
 
 use super::models::{
-    NormalizedCreateQuestionRequest, NormalizedQuestionDifficulty, QuestionFileReplaceResponse,
+    NormalizedCreateQuestionRequest, QuestionFileReplaceResponse,
     QuestionImportResponse,
 };
 use crate::api::shared::{
@@ -44,6 +44,7 @@ pub(crate) async fn import_question_zip(
     request: &NormalizedCreateQuestionRequest,
     zip_bytes: Vec<u8>,
     created_by: &str,
+    author_display_name: &str,
 ) -> Result<QuestionImportResponse> {
     if zip_bytes.is_empty() {
         return Err(ValidationError("uploaded file is empty".into()).into());
@@ -59,24 +60,25 @@ pub(crate) async fn import_question_zip(
         .await
         .context("begin question import tx failed")?;
 
+    // Backend sets: difficulty=empty, status="none", author=display_name, reviewers=[]
+    let empty_reviewers: Vec<String> = vec![];
     query(
         r#"
         INSERT INTO questions (
             question_id, source_tex_path, category, status, description, score, author, reviewers, created_by, created_at, updated_at
         )
         VALUES (
-            $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::uuid, NOW(), NOW()
+            $1::uuid, $2, $3, 'none', $4, $5, $6, $7, $8::uuid, NOW(), NOW()
         )
         "#,
     )
     .bind(&question_id)
     .bind(&loaded.tex_file.path)
     .bind(&request.category)
-    .bind(&request.status)
     .bind(&request.description)
     .bind(loaded.score)
-    .bind(&request.author)
-    .bind(&request.reviewers)
+    .bind(author_display_name)
+    .bind(&empty_reviewers)
     .bind(created_by)
     .execute(&mut *tx)
     .await
@@ -84,7 +86,7 @@ pub(crate) async fn import_question_zip(
 
     insert_loaded_question_files_tx(&mut tx, &question_id, &loaded).await?;
     insert_question_tags_tx(&mut tx, &question_id, &request.tags).await?;
-    insert_question_difficulties_tx(&mut tx, &question_id, &request.difficulty, created_by).await?;
+    // No difficulty entries inserted — difficulty starts empty.
 
     tx.commit().await.context("commit question import failed")?;
 
@@ -101,6 +103,7 @@ pub(crate) async fn replace_question_zip(
     question_id: &str,
     file_name: Option<&str>,
     zip_bytes: Vec<u8>,
+    creator_display_name: &str,
 ) -> Result<QuestionFileReplaceResponse> {
     if zip_bytes.is_empty() {
         return Err(ValidationError("uploaded file is empty".into()).into());
@@ -116,8 +119,6 @@ pub(crate) async fn replace_question_zip(
         .await
         .context("begin question file replace tx failed")?;
 
-    // Lock the parent row before rebuilding child rows so file replacement
-    // cannot race metadata updates or deletion of the same question.
     let exists = query(
         "SELECT 1 FROM questions WHERE question_id = $1::uuid AND deleted_at IS NULL FOR UPDATE",
     )
@@ -132,15 +133,25 @@ pub(crate) async fn replace_question_zip(
 
     replace_question_files_tx(&mut tx, question_id, &loaded).await?;
 
+    // Reset difficulty, status, author, reviewers to creation state.
+    query("DELETE FROM question_difficulties WHERE question_id = $1::uuid")
+        .bind(question_id)
+        .execute(&mut *tx)
+        .await
+        .context("clear question difficulties on file replace failed")?;
+
+    let empty_reviewers: Vec<String> = vec![];
     query(
-        "UPDATE questions SET source_tex_path = $2, score = $3, updated_at = NOW() WHERE question_id = $1::uuid",
+        "UPDATE questions SET source_tex_path = $2, score = $3, status = 'none', author = $4, reviewers = $5, updated_at = NOW() WHERE question_id = $1::uuid",
     )
     .bind(question_id)
     .bind(&loaded.tex_file.path)
     .bind(loaded.score)
+    .bind(creator_display_name)
+    .bind(&empty_reviewers)
     .execute(&mut *tx)
     .await
-    .context("update question source tex path failed")?;
+    .context("update question on file replace failed")?;
 
     tx.commit()
         .await
@@ -394,29 +405,6 @@ async fn insert_question_tags_tx(
             .execute(&mut **tx)
             .await
             .with_context(|| format!("insert question tag failed: {tag}"))?;
-    }
-
-    Ok(())
-}
-
-async fn insert_question_difficulties_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    question_id: &str,
-    difficulty: &NormalizedQuestionDifficulty,
-    created_by: &str,
-) -> Result<()> {
-    for (algorithm_tag, value) in difficulty {
-        query(
-            "INSERT INTO question_difficulties (question_id, algorithm_tag, score, notes, created_by, updated_by) VALUES ($1::uuid, $2, $3, $4, $5::uuid, $5::uuid)",
-        )
-        .bind(question_id)
-        .bind(algorithm_tag)
-        .bind(value.score)
-        .bind(value.notes.as_deref())
-        .bind(created_by)
-        .execute(&mut **tx)
-        .await
-        .with_context(|| format!("insert question difficulty failed: {algorithm_tag}"))?;
     }
 
     Ok(())

@@ -136,3 +136,8 @@ pub(crate) struct HealthResponse {
     pub(crate) status: &'static str,
     pub(crate) service: &'static str,
 }
+
+#[derive(Debug, Serialize)]
+pub(crate) struct VersionResponse {
+    pub(crate) version: &'static str,
+}

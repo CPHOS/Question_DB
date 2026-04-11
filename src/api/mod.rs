@@ -75,12 +75,36 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         .route(
             "/questions/:question_id",
             axum::routing::get(questions::handlers::get_question_detail)
-                .patch(questions::handlers::update_question_metadata)
                 .delete(questions::handlers::delete_question),
         )
         .route(
             "/questions/:question_id/file",
             axum::routing::put(questions::handlers::replace_question_file),
+        )
+        .route(
+            "/questions/:question_id/description",
+            axum::routing::patch(questions::handlers::update_question_description),
+        )
+        .route(
+            "/questions/:question_id/category",
+            axum::routing::patch(questions::handlers::update_question_category),
+        )
+        .route(
+            "/questions/:question_id/tags",
+            axum::routing::patch(questions::handlers::update_question_tags),
+        )
+        .route(
+            "/questions/:question_id/status",
+            axum::routing::patch(questions::handlers::update_question_status),
+        )
+        .route(
+            "/questions/:question_id/difficulties",
+            axum::routing::post(questions::handlers::create_question_difficulty),
+        )
+        .route(
+            "/questions/:question_id/difficulties/:algorithm_tag",
+            axum::routing::patch(questions::handlers::update_question_difficulty)
+                .delete(questions::handlers::delete_question_difficulty),
         )
         .route(
             "/questions/:question_id/reviewers",

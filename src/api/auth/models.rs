@@ -56,6 +56,11 @@ impl Role {
     pub(crate) fn is_admin(self) -> bool {
         matches!(self, Self::Admin)
     }
+
+    /// Admin or Bot: unrestricted data access.
+    pub(crate) fn is_admin_or_bot(self) -> bool {
+        matches!(self, Self::Bot | Self::Admin)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +72,7 @@ pub(crate) struct CurrentUser {
     pub(crate) user_id: String,
     #[allow(dead_code)]
     pub(crate) username: String,
+    pub(crate) display_name: String,
     /// Effective role (leader downgraded to user if expired).
     pub(crate) role: Role,
 }

@@ -18,7 +18,6 @@ class RealQuestionFixture:
     slug: str
     upload_path: Path
     create_description: str
-    create_difficulty: dict
     patch: dict
     asset_count: int
     title_hint: str
@@ -159,26 +158,22 @@ def _build_real_question_zips(
                 slug=f"{slug_prefix}-{source_dir.name}",
                 upload_path=upload_path,
                 create_description=f"{description_prefix} {source_dir.name}",
-                create_difficulty={
-                    "human": {
-                        "score": min(10, index + 3),
-                        "notes": f"{create_notes_prefix} {source_dir.name}",
-                    }
-                },
                 patch={
                     "category": category,
                     "description": f"{description_prefix} {source_dir.name}",
                     "tags": [*tag_prefixes, f"folder-{source_dir.name}"],
                     "status": status,
-                    "author": f"命题人{index}",
-                    "reviewers": [f"审题人{index}A", f"审题人{index}B"],
-                    "difficulty": {
-                        "human": {
+                    "difficulties": [
+                        {
+                            "algorithm_tag": "human",
                             "score": min(10, index + 4),
                             "notes": f"{patch_notes_prefix} {source_dir.name}",
                         },
-                        "heuristic": {"score": min(10, index + 2)},
-                    },
+                        {
+                            "algorithm_tag": "heuristic",
+                            "score": min(10, index + 2),
+                        },
+                    ],
                 },
                 asset_count=len(asset_paths),
                 title_hint=title_hint,

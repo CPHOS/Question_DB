@@ -52,7 +52,7 @@ pub(crate) async fn login(
     let role =
         Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
 
-    issue_tokens(&state, &user.user_id, &user.username, role, user.leader_expires_at).await
+    issue_tokens(&state, &user.user_id, &user.username, &user.display_name, role, user.leader_expires_at).await
 }
 
 pub(crate) async fn refresh(
@@ -81,7 +81,7 @@ pub(crate) async fn refresh(
     let role =
         Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
 
-    issue_tokens(&state, &user.user_id, &user.username, role, user.leader_expires_at).await
+    issue_tokens(&state, &user.user_id, &user.username, &user.display_name, role, user.leader_expires_at).await
 }
 
 pub(crate) async fn logout(
@@ -175,10 +175,11 @@ async fn issue_tokens(
     state: &AppState,
     user_id: &str,
     username: &str,
+    display_name: &str,
     role: Role,
     leader_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> ApiResult<TokenResponse> {
-    let access = create_access_token(user_id, username, role, leader_expires_at, &state.jwt_secret)
+    let access = create_access_token(user_id, username, display_name, role, leader_expires_at, &state.jwt_secret)
         .map_err(|_| ApiError::internal("token creation failed"))?;
 
     let refresh = generate_refresh_token();
