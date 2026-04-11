@@ -388,6 +388,27 @@ def test_filter_questions(api, state):
     api.get("/questions?updated_before=abc", expect=400)
 
 
+def test_filter_questions_by_author(api, state):
+    """Filter questions by author (exact match on questions.author field).
+
+    Synthetic questions are uploaded by admin whose display_name is 'Administrator',
+    so author='Administrator' should return all synthetic questions.
+    """
+    qs = state.q_by_slug
+
+    # Existing author → all synthetic questions should appear
+    page = parse_json(api.get("/questions?author=Administrator")[1])
+    found_ids = {i["question_id"] for i in page["items"]}
+    for qid in qs.values():
+        assert qid in found_ids, f"synthetic question {qid} not found with author=Administrator"
+
+    # Non-existent author → none of our synthetic questions
+    page = parse_json(api.get("/questions?author=nobody")[1])
+    found_ids = {i["question_id"] for i in page["items"]}
+    for qid in qs.values():
+        assert qid not in found_ids
+
+
 def test_filter_questions_by_reviewer(api, state):
     """Filter questions by reviewer name (reviewers array on questions table).
 
@@ -584,7 +605,7 @@ def test_reviewer_crud(api, state):
 
 
 def test_reviewer_role_restriction(api, state):
-    """Only user-role accounts can be assigned as reviewers."""
+    """Only user or leader accounts can be assigned as reviewers; viewer cannot."""
     question_id = state.q_ids[0]
 
     # Create a viewer-role account
@@ -594,6 +615,14 @@ def test_reviewer_role_restriction(api, state):
         "role": "viewer",
     })
 
+    # Create a leader-role account
+    leader = api.ensure_user({
+        "username": "e2e_leader_reviewer",
+        "password": "leader12345",
+        "role": "leader",
+        "leader_expires_at": "2099-12-31T23:59:59Z",
+    })
+
     try:
         # Assigning a viewer as reviewer should fail
         api.post_json(
@@ -601,8 +630,21 @@ def test_reviewer_role_restriction(api, state):
             {"reviewer_id": viewer["user_id"]},
             expect=400,
         )
+
+        # Assigning a leader as reviewer should succeed
+        _, body, _ = api.post_json(
+            f"/questions/{question_id}/reviewers",
+            {"reviewer_id": leader["user_id"]},
+        )
+        resp = parse_json(body)
+        leader_ids = [r["reviewer_id"] for r in resp["reviewers"]]
+        assert leader["user_id"] in leader_ids
+
+        # Cleanup: remove leader reviewer assignment
+        api.delete(f"/questions/{question_id}/reviewers/{leader['user_id']}")
     finally:
         api.delete(f"/admin/users/{viewer['user_id']}")
+        api.delete(f"/admin/users/{leader['user_id']}")
 
 
 def test_viewer_cannot_assign_reviewer(api, state):

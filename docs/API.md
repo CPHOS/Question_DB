@@ -105,7 +105,7 @@
 
 ```json
 {
-  "version": "0.1.0"
+  "version": "0.1.2"
 }
 ```
 
@@ -125,7 +125,7 @@
 - **角色**：5 级角色体系，基于能力而非线性层级
   - `viewer`：只读 + bundle 下载
   - `user`：可上传题目，编辑自己创建的题目，可被分配为审阅人
-  - `leader`：可创建/编辑/删除题目和试卷（非 used），可分配审阅人；有过期时间，过期后降级为 user
+  - `leader`：可创建/编辑/删除题目和试卷（非 used），可分配审阅人，也可被分配为审阅人；有过期时间，过期后降级为 user
   - `bot`：同 leader 权限，无过期时间，用于自动化程序
   - `admin`：全部权限 + ops + 用户管理 + 垃圾回收
 
@@ -145,14 +145,14 @@
 | `PATCH /questions/:id`（更新） | — | — | ⚠️¹ | ✅ | ✅ | ✅ |
 | `DELETE /questions/:id` | — | — | — | ✅ | ✅ | ✅ |
 | `POST /papers`（创建） | — | — | — | ✅ | ✅ | ✅ |
-| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ✅ | ✅ |
+| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ⚠️² | ✅ |
 | 审阅人管理 | — | — | — | ✅ | ✅ | ✅ |
 | `GET /users/search` | — | — | — | ✅ | ✅ | ✅ |
 | ops (exports / quality / db) | — | — | — | — | — | ✅ |
 | `/admin/*` | — | — | — | — | — | ✅ |
 
 ¹ user 只能编辑自己创建的题目（Full）或作为审阅人编辑难度标签（ReviewerOnly）
-² leader 只能操作自己创建的试卷
+² leader/bot 只能操作自己创建的试卷
 
 ### 环境变量
 
@@ -405,7 +405,7 @@
 **说明**：
 - "自己的" 指 `created_by` 为当前用户的题目
 - "非 used" 指 `status != 'used'` 的题目
-- "被分配的" 指在 `question_reviews` 表中被 leader 分配为审阅人的题目
+- "被分配的" 指在 `question_reviews` 表中被 leader 分配为审阅人的题目（user 和 leader 均可被分配）
 - reviewer 进行任意操作时，自动将其 display_name 加入 `questions.reviewers` 数组（去重）
 - 替换文件时，后端自动重置 difficulty（清空）、status（`none`）、author（创建者 display_name）、reviewers（`[]`）
 - 上传时，后端自动设置 difficulty 为空、status 为 `none`、author 为上传者 display_name、reviewers 为 `[]`
@@ -467,7 +467,7 @@
 
 按条件分页查询题目。认证：`viewer` 及以上。
 
-**Query 参数**：`paper_id`, `category`, `tag`, `reviewer`（支持逗号分隔多值，匹配任一）, `assigned_reviewer_id`, `score_min`, `score_max`, `difficulty_tag`, `difficulty_min`, `difficulty_max`, `q`, `created_after`, `created_before`, `updated_after`, `updated_before`, `limit` (1-100, 默认 20), `offset` (默认 0)。
+**Query 参数**：`paper_id`, `category`, `tag`, `author`, `reviewer`（支持逗号分隔多值，匹配任一）, `assigned_reviewer_id`, `score_min`, `score_max`, `difficulty_tag`, `difficulty_min`, `difficulty_max`, `q`, `created_after`, `created_before`, `updated_after`, `updated_before`, `limit` (1-100, 默认 20), `offset` (默认 0)。
 
 **成功响应** `200`：分页包裹，`items` 为 `QuestionSummary[]`。
 
@@ -645,7 +645,7 @@
 
 #### `POST /questions/:question_id/reviewers`
 
-分配审阅人（写入 `question_reviews` 表）。
+分配审阅人（写入 `question_reviews` 表）。目标用户必须为活跃的 `user` 或 `leader` 角色。
 
 - **认证**：leader / bot / admin
 - **Content-Type**：`application/json`

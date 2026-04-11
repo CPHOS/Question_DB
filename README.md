@@ -73,7 +73,7 @@ src/
 - `question_difficulties`
   保存每个 difficulty tag 的 `score` / `notes`，以及 `created_by` / `updated_by`（追踪编辑者）。
 - `question_reviews`
-  审阅人分配表，记录哪些 user 被分配为某题目的审阅人。
+  审阅人分配表，记录哪些 user 或 leader 被分配为某题目的审阅人。
 - `papers`
   保存试卷固定元数据，以及软删除字段 `deleted_at` / `deleted_by` 和 `created_by`（创建者）。
 - `paper_questions`

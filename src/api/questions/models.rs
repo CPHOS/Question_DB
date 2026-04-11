@@ -107,6 +107,7 @@ pub(crate) struct QuestionsParams {
     pub(crate) paper_id: Option<String>,
     pub(crate) category: Option<String>,
     pub(crate) tag: Option<String>,
+    pub(crate) author: Option<String>,
     pub(crate) reviewer: Option<String>,
     pub(crate) assigned_reviewer_id: Option<String>,
     pub(crate) score_min: Option<i32>,

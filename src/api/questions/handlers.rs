@@ -782,8 +782,8 @@ async fn load_question_access(
     let is_leader = current.role == Role::Leader && status != "used";
     let is_owner = created_by.as_deref() == Some(&current.user_id);
 
-    // Only users with 'user' role can be assigned reviewers.
-    let is_assigned_reviewer = if current.role == Role::User {
+    // Users with 'user' or 'leader' role can be assigned reviewers.
+    let is_assigned_reviewer = if matches!(current.role, Role::User | Role::Leader) {
         query(
             "SELECT 1 FROM question_reviews WHERE question_id = $1::uuid AND reviewer_id = $2::uuid",
         )
@@ -901,9 +901,9 @@ pub(crate) async fn assign_reviewer(
     if !reviewer_active {
         return Err(ApiError::bad_request("reviewer account is disabled"));
     }
-    if reviewer_role != "user" {
+    if reviewer_role != "user" && reviewer_role != "leader" {
         return Err(ApiError::bad_request(
-            "only users with 'user' role can be assigned as reviewers",
+            "only users with 'user' or 'leader' role can be assigned as reviewers",
         ));
     }
 

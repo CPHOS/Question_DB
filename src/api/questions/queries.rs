@@ -58,6 +58,9 @@ impl QuestionsParams {
         if let Some(category) = &self.category {
             builder.push(" AND q.category = ").push_bind(category);
         }
+        if let Some(author) = &self.author {
+            builder.push(" AND q.author = ").push_bind(author);
+        }
         if let Some(tag) = &self.tag {
             builder
                 .push(" AND EXISTS (SELECT 1 FROM question_tags qt WHERE qt.question_id = q.question_id AND qt.tag = ")

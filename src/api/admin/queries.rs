@@ -49,6 +49,9 @@ pub(crate) async fn list_admin_questions(
     if let Some(category) = &params.category {
         builder.push(" AND q.category = ").push_bind(category);
     }
+    if let Some(author) = &params.author {
+        builder.push(" AND q.author = ").push_bind(author);
+    }
     if let Some(tag) = &params.tag {
         builder
             .push(
