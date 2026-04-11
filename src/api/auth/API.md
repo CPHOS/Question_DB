@@ -11,8 +11,8 @@
 - **角色**：5 级角色体系，基于能力而非线性层级
   - `viewer`：只读 + bundle 下载
   - `user`：可上传题目，编辑自己创建的题目，可被分配为审阅人
-  - `leader`：可创建/编辑/删除题目和试卷（非 used），可分配审阅人，也可被分配为审阅人；有过期时间，过期后降级为 user
-  - `bot`：同 leader 权限，无过期时间，用于自动化程序
+  - `leader`：可创建题目和试卷，可编辑/删除非 used 状态的题目，可修改/删除自己创建的试卷，可分配审阅人，也可被分配为审阅人；有过期时间，过期后降级为 user
+  - `bot`：与 admin 相同的数据操作权限（题目/试卷的完整读写），但无 ops 和用户管理权限；无过期时间，用于自动化程序
   - `admin`：全部权限 + ops + 用户管理 + 垃圾回收
 
 ## 权限矩阵
@@ -28,17 +28,18 @@
 | `GET` questions/papers/tags | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `POST` bundles | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `POST /questions`（上传） | — | — | ✅ | ✅ | ✅ | ✅ |
-| `PATCH /questions/:id`（更新） | — | — | ⚠️¹ | ✅ | ✅ | ✅ |
-| `DELETE /questions/:id` | — | — | — | ✅ | ✅ | ✅ |
+| `PATCH /questions/:id`（更新） | — | — | ⚠️¹ | ⚠️³ | ✅ | ✅ |
+| `DELETE /questions/:id` | — | — | — | ⚠️³ | ✅ | ✅ |
 | `POST /papers`（创建） | — | — | — | ✅ | ✅ | ✅ |
-| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ⚠️² | ✅ |
+| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ✅ | ✅ |
 | 审阅人管理 | — | — | — | ✅ | ✅ | ✅ |
 | `GET /users/search` | — | — | — | ✅ | ✅ | ✅ |
 | ops (exports / quality / db) | — | — | — | — | — | ✅ |
 | `/admin/*` | — | — | — | — | — | ✅ |
 
 ¹ user 只能编辑自己创建的题目（Full）或作为审阅人编辑难度标签（ReviewerOnly）
-² leader/bot 只能操作自己创建的试卷
+² leader 只能操作自己创建的试卷
+³ leader 限于非 used 状态的题目；详见 Questions API
 
 ## 环境变量
 

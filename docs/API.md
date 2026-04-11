@@ -125,8 +125,8 @@
 - **角色**：5 级角色体系，基于能力而非线性层级
   - `viewer`：只读 + bundle 下载
   - `user`：可上传题目，编辑自己创建的题目，可被分配为审阅人
-  - `leader`：可创建/编辑/删除题目和试卷（非 used），可分配审阅人，也可被分配为审阅人；有过期时间，过期后降级为 user
-  - `bot`：同 leader 权限，无过期时间，用于自动化程序
+  - `leader`：可创建题目和试卷，可编辑/删除非 used 状态的题目，可修改/删除自己创建的试卷，可分配审阅人，也可被分配为审阅人；有过期时间，过期后降级为 user
+  - `bot`：与 admin 相同的数据操作权限（题目/试卷的完整读写），但无 ops 和用户管理权限；无过期时间，用于自动化程序
   - `admin`：全部权限 + ops + 用户管理 + 垃圾回收
 
 ### 权限矩阵
@@ -142,17 +142,18 @@
 | `GET` questions/papers/tags | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `POST` bundles | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `POST /questions`（上传） | — | — | ✅ | ✅ | ✅ | ✅ |
-| `PATCH /questions/:id`（更新） | — | — | ⚠️¹ | ✅ | ✅ | ✅ |
-| `DELETE /questions/:id` | — | — | — | ✅ | ✅ | ✅ |
+| `PATCH /questions/:id`（更新） | — | — | ⚠️¹ | ⚠️³ | ✅ | ✅ |
+| `DELETE /questions/:id` | — | — | — | ⚠️³ | ✅ | ✅ |
 | `POST /papers`（创建） | — | — | — | ✅ | ✅ | ✅ |
-| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ⚠️² | ✅ |
+| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ✅ | ✅ |
 | 审阅人管理 | — | — | — | ✅ | ✅ | ✅ |
 | `GET /users/search` | — | — | — | ✅ | ✅ | ✅ |
 | ops (exports / quality / db) | — | — | — | — | — | ✅ |
 | `/admin/*` | — | — | — | — | — | ✅ |
 
 ¹ user 只能编辑自己创建的题目（Full）或作为审阅人编辑难度标签（ReviewerOnly）
-² leader/bot 只能操作自己创建的试卷
+² leader 只能操作自己创建的试卷
+³ leader 限于非 used 状态的题目；详见 Questions API
 
 ### 环境变量
 
@@ -393,7 +394,7 @@
 | 修改 category | ✅ (自己的) | ✅ (非 used) | — | ✅ |
 | 修改 tags | ✅ (自己的) | ✅ (非 used) | ✅ (被分配的) | ✅ |
 | 替换 file | ✅ (自己的) | ✅ (非 used) | — | ✅ |
-| 修改 status | — | ✅ (none/reviewed) | — | ✅ (任意) |
+| 修改 status | — | ✅ (非 used 题目, none/reviewed) | — | ✅ (任意) |
 | 修改 author | — | — | — | ✅ |
 | 修改 reviewer names | — | — | — | ✅ |
 | 创建难度 | — | ✅ (非 used) | ✅ (被分配的) | ✅ |
@@ -410,6 +411,7 @@
 - 替换文件时，后端自动重置 difficulty（清空）、status（`none`）、author（创建者 display_name）、reviewers（`[]`）
 - 上传时，后端自动设置 difficulty 为空、status 为 `none`、author 为上传者 display_name、reviewers 为 `[]`
 - 后端自动维护 `created_by`、`created_at`、`updated_at`
+- 题目创建者（`created_by`）始终可修改自己题目的 description、category、tags 和 file，不受 status 限制
 
 ---
 
@@ -568,7 +570,7 @@
 
 更新题目状态。
 
-- **认证**：leader（只能设 `"none"` 或 `"reviewed"`）/ admin / bot（任意合法值）
+- **认证**：leader（非 used 题目，只能设 `"none"` 或 `"reviewed"`）/ admin / bot（任意合法值）
 - **Content-Type**：`application/json`
 - **请求体**：`{ "status": "none" | "reviewed" | "used" }`
 

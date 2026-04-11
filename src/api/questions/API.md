@@ -15,7 +15,7 @@
 | 修改 category | ✅ (自己的) | ✅ (非 used) | — | ✅ |
 | 修改 tags | ✅ (自己的) | ✅ (非 used) | ✅ (被分配的) | ✅ |
 | 替换 file | ✅ (自己的) | ✅ (非 used) | — | ✅ |
-| 修改 status | — | ✅ (none/reviewed) | — | ✅ (任意) |
+| 修改 status | — | ✅ (非 used 题目, none/reviewed) | — | ✅ (任意) |
 | 修改 author | — | — | — | ✅ |
 | 修改 reviewer names | — | — | — | ✅ |
 | 创建难度 | — | ✅ (非 used) | ✅ (被分配的) | ✅ |
@@ -32,6 +32,7 @@
 - 替换文件时，后端自动重置 difficulty（清空）、status（`none`）、author（创建者 display_name）、reviewers（`[]`）
 - 上传时，后端自动设置 difficulty 为空、status 为 `none`、author 为上传者 display_name、reviewers 为 `[]`
 - 后端自动维护 `created_by`、`created_at`、`updated_at`
+- 题目创建者（`created_by`）始终可修改自己题目的 description、category、tags 和 file，不受 status 限制
 
 ---
 
@@ -190,7 +191,7 @@
 
 更新题目状态。
 
-- **认证**：leader（只能设 `"none"` 或 `"reviewed"`）/ admin / bot（任意合法值）
+- **认证**：leader（非 used 题目，只能设 `"none"` 或 `"reviewed"`）/ admin / bot（任意合法值）
 - **Content-Type**：`application/json`
 - **请求体**：`{ "status": "none" | "reviewed" | "used" }`
 
