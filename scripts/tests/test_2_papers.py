@@ -392,6 +392,46 @@ def test_paper_bundle_validation(api):
     )
 
 
+def test_bot_can_modify_any_paper(api, state):
+    """Bot role can PATCH/PUT/DELETE papers created by other users."""
+    bot = api.ensure_user({
+        "username": "e2e_bot_paper",
+        "password": "botpaper123",
+        "role": "bot",
+    })
+
+    # Papers in state were created by admin; bot should still be able to modify them.
+    paper_id = state.theory_paper_ids[0]
+    original = parse_json(api.get(f"/papers/{paper_id}")[1])
+
+    saved = api._access_token
+    try:
+        api.login("e2e_bot_paper", "botpaper123")
+
+        # PATCH — bot patches a paper it does not own
+        _, body, _ = api.patch_json(
+            f"/papers/{paper_id}",
+            {"subtitle": "bot 修订"},
+        )
+        assert parse_json(body)["subtitle"] == "bot 修订"
+
+        # PUT file — bot replaces appendix on a paper it does not own
+        api.upload(
+            f"/papers/{paper_id}/file",
+            file_path=state.appendix_paths["mock-a"],
+            method="PUT",
+        )
+
+        # Restore original subtitle before further tests depend on it
+        api.patch_json(
+            f"/papers/{paper_id}",
+            {"subtitle": original["subtitle"]},
+        )
+    finally:
+        api.set_token(saved)
+        api.delete(f"/admin/users/{bot['user_id']}")
+
+
 def test_user_cannot_create_paper(api, state):
     """User role cannot create papers (requires leader or above)."""
     user = api.ensure_user({

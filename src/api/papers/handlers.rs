@@ -69,7 +69,9 @@ pub(crate) async fn create_paper(
     mut multipart: Multipart,
 ) -> ApiResult<PaperImportResponse> {
     if !current.role.can_create_paper() {
-        return Err(ApiError::forbidden("leader role or above required to create papers"));
+        return Err(ApiError::forbidden(
+            "leader role or above required to create papers",
+        ));
     }
 
     let mut file_name = None;
@@ -130,9 +132,15 @@ pub(crate) async fn create_paper(
     ensure_paper_questions_valid(&state.pool, &request.question_ids).await?;
 
     Ok(Json(
-        import_paper_zip(&state.pool, file_name.as_deref(), &request, bytes, &current.user_id)
-            .await
-            .map_err(ApiError::from)?,
+        import_paper_zip(
+            &state.pool,
+            file_name.as_deref(),
+            &request,
+            bytes,
+            &current.user_id,
+        )
+        .await
+        .map_err(ApiError::from)?,
     ))
 }
 
@@ -359,21 +367,23 @@ fn validate_question_ids(question_ids: &[String]) -> Result<(), ApiError> {
 // ---------------------------------------------------------------------------
 
 /// Check that the current user has write access to a paper.
-/// Admin: always. Leader/Bot: if they are the owner. User/Viewer: never.
+/// Admin/Bot: always. Leader: if they are the owner. User/Viewer: never.
 async fn check_paper_write_access(
     state: &AppState,
     current: &CurrentUser,
     paper_id: &str,
 ) -> Result<(), ApiError> {
-    if current.role.is_admin() {
+    if current.role.is_admin_or_bot() {
         return Ok(());
     }
 
     if !current.role.can_create_paper() {
-        return Err(ApiError::forbidden("you do not have permission to modify this paper"));
+        return Err(ApiError::forbidden(
+            "you do not have permission to modify this paper",
+        ));
     }
 
-    // Leader/Bot: must be the owner.
+    // Leader: must be the owner.
     let is_owner = query(
         "SELECT 1 FROM papers WHERE paper_id = $1::uuid AND deleted_at IS NULL AND created_by = $2::uuid",
     )
@@ -386,7 +396,9 @@ async fn check_paper_write_access(
     .is_some();
 
     if !is_owner {
-        return Err(ApiError::forbidden("you can only modify papers you created"));
+        return Err(ApiError::forbidden(
+            "you can only modify papers you created",
+        ));
     }
 
     Ok(())

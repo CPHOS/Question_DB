@@ -145,14 +145,14 @@
 | `PATCH /questions/:id`（更新） | — | — | ⚠️¹ | ✅ | ✅ | ✅ |
 | `DELETE /questions/:id` | — | — | — | ✅ | ✅ | ✅ |
 | `POST /papers`（创建） | — | — | — | ✅ | ✅ | ✅ |
-| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ⚠️² | ✅ |
+| `PATCH/PUT/DELETE` papers | — | — | — | ⚠️² | ✅ | ✅ |
 | 审阅人管理 | — | — | — | ✅ | ✅ | ✅ |
 | `GET /users/search` | — | — | — | ✅ | ✅ | ✅ |
 | ops (exports / quality / db) | — | — | — | — | — | ✅ |
 | `/admin/*` | — | — | — | — | — | ✅ |
 
 ¹ user 只能编辑自己创建的题目（Full）或作为审阅人编辑难度标签（ReviewerOnly）
-² leader/bot 只能操作自己创建的试卷
+² leader 只能操作自己创建的试卷
 
 ### 环境变量
 
@@ -669,7 +669,7 @@
 
 - **`GET` 操作和 `POST /papers/bundles`**：需要任意已认证角色（`viewer` 及以上）
 - **`POST /papers`（创建）**：需要 `leader` / `bot` / `admin`（即 `can_create_paper` 能力）
-- **`PATCH / PUT / DELETE`（修改/删除）**：admin 可操作任何试卷；leader/bot 只能操作自己创建的试卷
+- **`PATCH / PUT / DELETE`（修改/删除）**：admin/bot 可操作任何试卷；leader 只能操作自己创建的试卷
 - 所有请求需携带 `Authorization: Bearer <access_token>` 头
 
 ---
@@ -829,7 +829,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 部分更新试卷元数据和题目列表。
 
-- **认证**：admin 可操作任何试卷；leader/bot 只能操作自己创建的试卷
+- **认证**：admin/bot 可操作任何试卷；leader 只能操作自己创建的试卷
 - **Content-Type**：`application/json`
 - **路径参数**：`paper_id` — UUID
 - **说明**：至少提供一个字段；已软删除试卷返回 `404`
@@ -871,7 +871,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 替换试卷的附录 zip 文件。
 
-- **认证**：admin 可操作任何试卷；leader/bot 只能操作自己创建的试卷
+- **认证**：admin/bot 可操作任何试卷；leader 只能操作自己创建的试卷
 - **Content-Type**：`multipart/form-data`
 - **路径参数**：`paper_id` — UUID
 - **大小限制**：≤ 20 MiB
@@ -907,7 +907,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 
 软删除试卷。
 
-- **认证**：admin 可操作任何试卷；leader/bot 只能操作自己创建的试卷
+- **认证**：admin/bot 可操作任何试卷；leader 只能操作自己创建的试卷
 - **路径参数**：`paper_id` — UUID
 
 **行为**：
