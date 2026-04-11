@@ -13,9 +13,10 @@ use super::{
     models::{
         CreateDifficultyRequest, CreateQuestionRequest, QuestionBundleRequest,
         QuestionDeleteResponse, QuestionDetail, QuestionDifficultyTagsResponse,
-        QuestionFileReplaceResponse, QuestionImportResponse, QuestionSummary,
-        QuestionTagsResponse, QuestionsParams, UpdateCategoryRequest, UpdateDescriptionRequest,
-        UpdateDifficultyRequest, UpdateStatusRequest, UpdateTagsRequest,
+        QuestionFileReplaceResponse, QuestionImportResponse, QuestionSummary, QuestionTagsResponse,
+        QuestionsParams, UpdateAuthorRequest, UpdateCategoryRequest, UpdateDescriptionRequest,
+        UpdateDifficultyRequest, UpdateReviewerNamesRequest, UpdateStatusRequest,
+        UpdateTagsRequest,
     },
     queries::{
         execute_questions_query, list_active_difficulty_tags, list_active_question_tags,
@@ -128,7 +129,9 @@ pub(crate) async fn create_question(
     mut multipart: Multipart,
 ) -> ApiResult<QuestionImportResponse> {
     if !current.role.can_upload_question() {
-        return Err(ApiError::forbidden("user role or above required to upload questions"));
+        return Err(ApiError::forbidden(
+            "user role or above required to upload questions",
+        ));
     }
 
     let mut file_name = None;
@@ -194,7 +197,9 @@ pub(crate) async fn replace_question_file(
     parse_uuid_param(&question_id, "question_id")?;
     let access = load_question_access(&state.pool, &current, &question_id).await?;
     if !(access.is_admin_or_bot || access.is_leader || access.is_owner) {
-        return Err(ApiError::forbidden("you do not have permission to replace this question's file"));
+        return Err(ApiError::forbidden(
+            "you do not have permission to replace this question's file",
+        ));
     }
 
     let (file_name, bytes) = read_uploaded_file(&mut multipart).await?;
@@ -238,10 +243,14 @@ pub(crate) async fn update_question_description(
     Json(request): Json<UpdateDescriptionRequest>,
 ) -> ApiResult<QuestionDetail> {
     parse_uuid_param(&question_id, "question_id")?;
-    let description = request.normalize().map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let description = request
+        .normalize()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     let access = load_question_access(&state.pool, &current, &question_id).await?;
     if !(access.is_admin_or_bot || access.is_leader || access.is_owner) {
-        return Err(ApiError::forbidden("you do not have permission to update this question's description"));
+        return Err(ApiError::forbidden(
+            "you do not have permission to update this question's description",
+        ));
     }
     query("UPDATE questions SET description = $2, updated_at = NOW() WHERE question_id = $1::uuid")
         .bind(&question_id)
@@ -260,10 +269,14 @@ pub(crate) async fn update_question_category(
     Json(request): Json<UpdateCategoryRequest>,
 ) -> ApiResult<QuestionDetail> {
     parse_uuid_param(&question_id, "question_id")?;
-    let category = request.normalize().map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let category = request
+        .normalize()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     let access = load_question_access(&state.pool, &current, &question_id).await?;
     if !(access.is_admin_or_bot || access.is_leader || access.is_owner) {
-        return Err(ApiError::forbidden("you do not have permission to update this question's category"));
+        return Err(ApiError::forbidden(
+            "you do not have permission to update this question's category",
+        ));
     }
     query("UPDATE questions SET category = $2, updated_at = NOW() WHERE question_id = $1::uuid")
         .bind(&question_id)
@@ -282,12 +295,24 @@ pub(crate) async fn update_question_tags(
     Json(request): Json<UpdateTagsRequest>,
 ) -> ApiResult<QuestionDetail> {
     parse_uuid_param(&question_id, "question_id")?;
-    let tags = request.normalize().map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let tags = request
+        .normalize()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     let access = load_question_access(&state.pool, &current, &question_id).await?;
-    if !(access.is_admin_or_bot || access.is_leader || access.is_owner || access.is_assigned_reviewer) {
-        return Err(ApiError::forbidden("you do not have permission to update this question's tags"));
+    if !(access.is_admin_or_bot
+        || access.is_leader
+        || access.is_owner
+        || access.is_assigned_reviewer)
+    {
+        return Err(ApiError::forbidden(
+            "you do not have permission to update this question's tags",
+        ));
     }
-    let mut tx = state.pool.begin().await.context("begin tags update tx failed")?;
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .context("begin tags update tx failed")?;
     query("DELETE FROM question_tags WHERE question_id = $1::uuid")
         .bind(&question_id)
         .execute(&mut *tx)
@@ -313,7 +338,10 @@ pub(crate) async fn update_question_tags(
     if access.is_assigned_reviewer {
         auto_add_reviewer_display_name(&mut tx, &question_id, &current.display_name).await?;
     }
-    tx.commit().await.context("commit tags update failed").map_err(ApiError::from)?;
+    tx.commit()
+        .await
+        .context("commit tags update failed")
+        .map_err(ApiError::from)?;
     Ok(Json(fetch_question_detail(&state, &question_id).await?))
 }
 
@@ -324,17 +352,23 @@ pub(crate) async fn update_question_status(
     Json(request): Json<UpdateStatusRequest>,
 ) -> ApiResult<QuestionDetail> {
     parse_uuid_param(&question_id, "question_id")?;
-    let status = request.normalize().map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let status = request
+        .normalize()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     let access = load_question_access(&state.pool, &current, &question_id).await?;
     if access.is_admin_or_bot {
         // admin/bot can set any valid status
     } else if access.is_leader {
         // leader can only set none or reviewed
         if status == "used" {
-            return Err(ApiError::forbidden("leader cannot set status to 'used'; admin role required"));
+            return Err(ApiError::forbidden(
+                "leader cannot set status to 'used'; admin role required",
+            ));
         }
     } else {
-        return Err(ApiError::forbidden("leader role or above required to update question status"));
+        return Err(ApiError::forbidden(
+            "leader role or above required to update question status",
+        ));
     }
     query("UPDATE questions SET status = $2, updated_at = NOW() WHERE question_id = $1::uuid")
         .bind(&question_id)
@@ -343,6 +377,70 @@ pub(crate) async fn update_question_status(
         .await
         .context("update question status failed")
         .map_err(ApiError::from)?;
+    Ok(Json(fetch_question_detail(&state, &question_id).await?))
+}
+
+pub(crate) async fn update_question_author(
+    AxumPath(question_id): AxumPath<String>,
+    Extension(current): Extension<CurrentUser>,
+    State(state): State<AppState>,
+    Json(request): Json<UpdateAuthorRequest>,
+) -> ApiResult<QuestionDetail> {
+    parse_uuid_param(&question_id, "question_id")?;
+    if !current.role.is_admin_or_bot() {
+        return Err(ApiError::forbidden(
+            "admin or bot role required to update author",
+        ));
+    }
+    let author = request
+        .normalize()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+
+    let rows_affected = query("UPDATE questions SET author = $2, updated_at = NOW() WHERE question_id = $1::uuid AND deleted_at IS NULL")
+        .bind(&question_id)
+        .bind(&author)
+        .execute(&state.pool)
+        .await
+        .context("update question author failed")
+        .map_err(ApiError::from)?
+        .rows_affected();
+    if rows_affected == 0 {
+        return Err(ApiError::not_found(format!(
+            "question not found: {question_id}"
+        )));
+    }
+    Ok(Json(fetch_question_detail(&state, &question_id).await?))
+}
+
+pub(crate) async fn update_question_reviewer_names(
+    AxumPath(question_id): AxumPath<String>,
+    Extension(current): Extension<CurrentUser>,
+    State(state): State<AppState>,
+    Json(request): Json<UpdateReviewerNamesRequest>,
+) -> ApiResult<QuestionDetail> {
+    parse_uuid_param(&question_id, "question_id")?;
+    if !current.role.is_admin_or_bot() {
+        return Err(ApiError::forbidden(
+            "admin or bot role required to update reviewer names",
+        ));
+    }
+    let reviewers = request
+        .normalize()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+
+    let rows_affected = query("UPDATE questions SET reviewers = $2, updated_at = NOW() WHERE question_id = $1::uuid AND deleted_at IS NULL")
+        .bind(&question_id)
+        .bind(&reviewers)
+        .execute(&state.pool)
+        .await
+        .context("update question reviewer names failed")
+        .map_err(ApiError::from)?
+        .rows_affected();
+    if rows_affected == 0 {
+        return Err(ApiError::not_found(format!(
+            "question not found: {question_id}"
+        )));
+    }
     Ok(Json(fetch_question_detail(&state, &question_id).await?))
 }
 
@@ -357,13 +455,20 @@ pub(crate) async fn create_question_difficulty(
     Json(request): Json<CreateDifficultyRequest>,
 ) -> ApiResult<QuestionDetail> {
     parse_uuid_param(&question_id, "question_id")?;
-    let (algorithm_tag, score, notes) =
-        request.normalize().map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let (algorithm_tag, score, notes) = request
+        .normalize()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     let access = load_question_access(&state.pool, &current, &question_id).await?;
     if !(access.is_admin_or_bot || access.is_leader || access.is_assigned_reviewer) {
-        return Err(ApiError::forbidden("you do not have permission to create difficulty entries on this question"));
+        return Err(ApiError::forbidden(
+            "you do not have permission to create difficulty entries on this question",
+        ));
     }
-    let mut tx = state.pool.begin().await.context("begin difficulty create tx failed")?;
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .context("begin difficulty create tx failed")?;
     // Check for duplicate
     let exists = query(
         "SELECT 1 FROM question_difficulties WHERE question_id = $1::uuid AND algorithm_tag = $2",
@@ -401,7 +506,10 @@ pub(crate) async fn create_question_difficulty(
     if access.is_assigned_reviewer {
         auto_add_reviewer_display_name(&mut tx, &question_id, &current.display_name).await?;
     }
-    tx.commit().await.context("commit difficulty create failed").map_err(ApiError::from)?;
+    tx.commit()
+        .await
+        .context("commit difficulty create failed")
+        .map_err(ApiError::from)?;
     Ok(Json(fetch_question_detail(&state, &question_id).await?))
 }
 
@@ -416,12 +524,20 @@ pub(crate) async fn update_question_difficulty(
     if algorithm_tag.is_empty() {
         return Err(ApiError::bad_request("algorithm_tag must not be empty"));
     }
-    let (score, notes) = request.normalize().map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let (score, notes) = request
+        .normalize()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     let access = load_question_access(&state.pool, &current, &question_id).await?;
     if !(access.is_admin_or_bot || access.is_leader || access.is_assigned_reviewer) {
-        return Err(ApiError::forbidden("you do not have permission to update difficulty entries on this question"));
+        return Err(ApiError::forbidden(
+            "you do not have permission to update difficulty entries on this question",
+        ));
     }
-    let mut tx = state.pool.begin().await.context("begin difficulty update tx failed")?;
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .context("begin difficulty update tx failed")?;
     // Check entry exists and ownership
     let existing = query(
         "SELECT created_by::text AS created_by FROM question_difficulties WHERE question_id = $1::uuid AND algorithm_tag = $2",
@@ -432,9 +548,8 @@ pub(crate) async fn update_question_difficulty(
     .await
     .context("check existing difficulty tag failed")
     .map_err(ApiError::from)?;
-    let existing = existing.ok_or_else(|| {
-        ApiError::not_found(format!("difficulty tag not found: {algorithm_tag}"))
-    })?;
+    let existing = existing
+        .ok_or_else(|| ApiError::not_found(format!("difficulty tag not found: {algorithm_tag}")))?;
     // Reviewer can only modify entries they created.
     if access.is_assigned_reviewer && !access.is_admin_or_bot && !access.is_leader {
         let tag_created_by: Option<String> = existing.get("created_by");
@@ -465,7 +580,10 @@ pub(crate) async fn update_question_difficulty(
     if access.is_assigned_reviewer {
         auto_add_reviewer_display_name(&mut tx, &question_id, &current.display_name).await?;
     }
-    tx.commit().await.context("commit difficulty update failed").map_err(ApiError::from)?;
+    tx.commit()
+        .await
+        .context("commit difficulty update failed")
+        .map_err(ApiError::from)?;
     Ok(Json(fetch_question_detail(&state, &question_id).await?))
 }
 
@@ -481,9 +599,15 @@ pub(crate) async fn delete_question_difficulty(
     }
     let access = load_question_access(&state.pool, &current, &question_id).await?;
     if !(access.is_admin_or_bot || access.is_leader || access.is_assigned_reviewer) {
-        return Err(ApiError::forbidden("you do not have permission to delete difficulty entries on this question"));
+        return Err(ApiError::forbidden(
+            "you do not have permission to delete difficulty entries on this question",
+        ));
     }
-    let mut tx = state.pool.begin().await.context("begin difficulty delete tx failed")?;
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .context("begin difficulty delete tx failed")?;
     // Check entry exists and ownership
     let existing = query(
         "SELECT created_by::text AS created_by FROM question_difficulties WHERE question_id = $1::uuid AND algorithm_tag = $2",
@@ -494,9 +618,8 @@ pub(crate) async fn delete_question_difficulty(
     .await
     .context("check existing difficulty tag failed")
     .map_err(ApiError::from)?;
-    let existing = existing.ok_or_else(|| {
-        ApiError::not_found(format!("difficulty tag not found: {algorithm_tag}"))
-    })?;
+    let existing = existing
+        .ok_or_else(|| ApiError::not_found(format!("difficulty tag not found: {algorithm_tag}")))?;
     if access.is_assigned_reviewer && !access.is_admin_or_bot && !access.is_leader {
         let tag_created_by: Option<String> = existing.get("created_by");
         if tag_created_by.as_deref() != Some(&current.user_id) {
@@ -521,7 +644,10 @@ pub(crate) async fn delete_question_difficulty(
     if access.is_assigned_reviewer {
         auto_add_reviewer_display_name(&mut tx, &question_id, &current.display_name).await?;
     }
-    tx.commit().await.context("commit difficulty delete failed").map_err(ApiError::from)?;
+    tx.commit()
+        .await
+        .context("commit difficulty delete failed")
+        .map_err(ApiError::from)?;
     Ok(Json(fetch_question_detail(&state, &question_id).await?))
 }
 
@@ -537,7 +663,9 @@ pub(crate) async fn delete_question(
     parse_uuid_param(&question_id, "question_id")?;
     let access = load_question_access(&state.pool, &current, &question_id).await?;
     if !(access.is_admin_or_bot || access.is_leader) {
-        return Err(ApiError::forbidden("leader role or above required to delete questions"));
+        return Err(ApiError::forbidden(
+            "leader role or above required to delete questions",
+        ));
     }
 
     let mut tx = state
@@ -553,12 +681,15 @@ pub(crate) async fn delete_question(
     .fetch_optional(&mut *tx)
     .await
     .context("lock question row for delete failed")?;
-    let row = row.ok_or_else(|| ApiError::not_found(format!("question not found: {question_id}")))?;
+    let row =
+        row.ok_or_else(|| ApiError::not_found(format!("question not found: {question_id}")))?;
     let status: String = row.get("status");
 
     // Leader cannot delete used questions; admin/bot can delete anything.
     if status == "used" && !current.role.is_admin_or_bot() {
-        return Err(ApiError::forbidden("cannot delete a question with status 'used'; admin role required"));
+        return Err(ApiError::forbidden(
+            "cannot delete a question with status 'used'; admin role required",
+        ));
     }
 
     let active_paper_ref = query(
@@ -737,19 +868,24 @@ pub(crate) async fn assign_reviewer(
 
     // Only leader/bot/admin can assign reviewers.
     if !current.role.is_leader_or_above() {
-        return Err(ApiError::forbidden("leader role or above required to assign reviewers"));
+        return Err(ApiError::forbidden(
+            "leader role or above required to assign reviewers",
+        ));
     }
 
     // Verify the question exists and is active.
-    let exists = query("SELECT 1 FROM questions WHERE question_id = $1::uuid AND deleted_at IS NULL")
-        .bind(&question_id)
-        .fetch_optional(&state.pool)
-        .await
-        .context("check question existence failed")
-        .map_err(ApiError::from)?
-        .is_some();
+    let exists =
+        query("SELECT 1 FROM questions WHERE question_id = $1::uuid AND deleted_at IS NULL")
+            .bind(&question_id)
+            .fetch_optional(&state.pool)
+            .await
+            .context("check question existence failed")
+            .map_err(ApiError::from)?
+            .is_some();
     if !exists {
-        return Err(ApiError::not_found(format!("question not found: {question_id}")));
+        return Err(ApiError::not_found(format!(
+            "question not found: {question_id}"
+        )));
     }
 
     // Verify the reviewer is an active user with 'user' role.
@@ -766,7 +902,9 @@ pub(crate) async fn assign_reviewer(
         return Err(ApiError::bad_request("reviewer account is disabled"));
     }
     if reviewer_role != "user" {
-        return Err(ApiError::bad_request("only users with 'user' role can be assigned as reviewers"));
+        return Err(ApiError::bad_request(
+            "only users with 'user' role can be assigned as reviewers",
+        ));
     }
 
     // Insert (ignore duplicate).
@@ -796,7 +934,9 @@ pub(crate) async fn remove_reviewer(
     parse_uuid_param(&reviewer_id, "reviewer_id")?;
 
     if !current.role.is_leader_or_above() {
-        return Err(ApiError::forbidden("leader role or above required to remove reviewers"));
+        return Err(ApiError::forbidden(
+            "leader role or above required to remove reviewers",
+        ));
     }
 
     query("DELETE FROM question_reviews WHERE question_id = $1::uuid AND reviewer_id = $2::uuid")

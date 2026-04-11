@@ -4,8 +4,9 @@ mod tests {
         papers::models::PapersParams,
         questions::models::{
             CreateDifficultyRequest, CreateQuestionRequest, QuestionsParams,
-            UpdateCategoryRequest, UpdateDescriptionRequest, UpdateDifficultyRequest,
-            UpdateStatusRequest, UpdateTagsRequest,
+            UpdateAuthorRequest, UpdateCategoryRequest, UpdateDescriptionRequest,
+            UpdateDifficultyRequest, UpdateReviewerNamesRequest, UpdateStatusRequest,
+            UpdateTagsRequest,
         },
     };
 
@@ -50,6 +51,60 @@ mod tests {
         assert!(sql.contains("p.deleted_at IS NULL"));
         assert!(sql.contains("COALESCE(q.description, '') ILIKE"));
         assert!(sql.contains("COUNT(*) OVER() AS total_count"));
+    }
+
+    #[test]
+    fn question_query_single_reviewer_uses_contains() {
+        let params = QuestionsParams {
+            paper_id: None,
+            category: None,
+            tag: None,
+            reviewer: Some("Alice".into()),
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+
+        let plan = params.build_query();
+        let sql = plan.builder.sql().to_owned();
+        assert!(sql.contains("q.reviewers @>"));
+    }
+
+    #[test]
+    fn question_query_multi_reviewer_uses_overlap() {
+        let params = QuestionsParams {
+            paper_id: None,
+            category: None,
+            tag: None,
+            reviewer: Some("Alice,Bob".into()),
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+
+        let plan = params.build_query();
+        let sql = plan.builder.sql().to_owned();
+        assert!(sql.contains("q.reviewers &&"));
     }
 
     // -----------------------------------------------------------------------
@@ -244,6 +299,54 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // UpdateAuthorRequest: positive & negative
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn update_author_trims_and_normalizes() {
+        let req = UpdateAuthorRequest {
+            author: "  张三  ".into(),
+        };
+        assert_eq!(req.normalize().unwrap(), "张三");
+    }
+
+    #[test]
+    fn update_author_rejects_empty() {
+        let req = UpdateAuthorRequest {
+            author: "   ".into(),
+        };
+        assert!(req.normalize().is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // UpdateReviewerNamesRequest: positive & negative
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn update_reviewer_names_deduplicates_and_trims() {
+        let req = UpdateReviewerNamesRequest {
+            reviewers: vec![" Alice ".into(), "Bob".into(), "Alice".into()],
+        };
+        assert_eq!(req.normalize().unwrap(), vec!["Alice", "Bob"]);
+    }
+
+    #[test]
+    fn update_reviewer_names_accepts_empty_array() {
+        let req = UpdateReviewerNamesRequest {
+            reviewers: vec![],
+        };
+        assert_eq!(req.normalize().unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn update_reviewer_names_skips_blank_entries() {
+        let req = UpdateReviewerNamesRequest {
+            reviewers: vec!["Alice".into(), "  ".into(), "Bob".into()],
+        };
+        assert_eq!(req.normalize().unwrap(), vec!["Alice", "Bob"]);
+    }
+
+    // -----------------------------------------------------------------------
     // CreateDifficultyRequest: positive & negative
     // -----------------------------------------------------------------------
 
@@ -374,6 +477,20 @@ mod tests {
     fn update_difficulty_json_rejects_unknown_fields() {
         let result: Result<UpdateDifficultyRequest, _> =
             serde_json::from_str(r#"{"score":5,"extra":1}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn update_author_json_rejects_unknown_fields() {
+        let result: Result<UpdateAuthorRequest, _> =
+            serde_json::from_str(r#"{"author":"ok","extra":1}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn update_reviewer_names_json_rejects_unknown_fields() {
+        let result: Result<UpdateReviewerNamesRequest, _> =
+            serde_json::from_str(r#"{"reviewers":["a"],"extra":1}"#);
         assert!(result.is_err());
     }
 

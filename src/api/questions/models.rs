@@ -161,6 +161,18 @@ pub(crate) struct UpdateStatusRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct UpdateAuthorRequest {
+    pub(crate) author: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UpdateReviewerNamesRequest {
+    pub(crate) reviewers: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CreateDifficultyRequest {
     pub(crate) algorithm_tag: String,
     pub(crate) score: i32,
@@ -266,6 +278,30 @@ impl UpdateStatusRequest {
     }
 }
 
+impl UpdateAuthorRequest {
+    pub(crate) fn normalize(&self) -> Result<String> {
+        let trimmed = self.author.trim().to_string();
+        if trimmed.is_empty() {
+            bail!("author must not be empty");
+        }
+        Ok(trimmed)
+    }
+}
+
+impl UpdateReviewerNamesRequest {
+    pub(crate) fn normalize(self) -> Result<Vec<String>> {
+        let mut seen = HashSet::new();
+        let mut normalized = Vec::with_capacity(self.reviewers.len());
+        for name in &self.reviewers {
+            let trimmed = name.trim().to_string();
+            if !trimmed.is_empty() && seen.insert(trimmed.clone()) {
+                normalized.push(trimmed);
+            }
+        }
+        Ok(normalized)
+    }
+}
+
 impl CreateDifficultyRequest {
     pub(crate) fn normalize(&self) -> Result<(String, i32, Option<String>)> {
         let tag = self.algorithm_tag.trim().to_string();
@@ -277,7 +313,11 @@ impl CreateDifficultyRequest {
         }
         let notes = self.notes.as_ref().and_then(|n| {
             let trimmed = n.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         });
         Ok((tag, self.score, notes))
     }
@@ -290,7 +330,11 @@ impl UpdateDifficultyRequest {
         }
         let notes = self.notes.as_ref().and_then(|n| {
             let trimmed = n.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         });
         Ok((self.score, notes))
     }

@@ -65,10 +65,26 @@ impl QuestionsParams {
                 .push(")");
         }
         if let Some(reviewer) = &self.reviewer {
-            builder
-                .push(" AND q.reviewers @> ARRAY[")
-                .push_bind(reviewer)
-                .push("]::text[]");
+            let names: Vec<&str> = reviewer
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if names.len() == 1 {
+                builder
+                    .push(" AND q.reviewers @> ARRAY[")
+                    .push_bind(names[0].to_string())
+                    .push("]::text[]");
+            } else if names.len() > 1 {
+                builder.push(" AND q.reviewers && ARRAY[");
+                for (i, name) in names.iter().enumerate() {
+                    if i > 0 {
+                        builder.push(", ");
+                    }
+                    builder.push_bind(name.to_string());
+                }
+                builder.push("]::text[]");
+            }
         }
         if let Some(assigned_reviewer_id) = &self.assigned_reviewer_id {
             builder
@@ -274,13 +290,17 @@ pub(crate) async fn load_question_difficulties_batch(
     for row in rows {
         let qid: String = row.get("question_id");
         let tag: String = row.get("algorithm_tag");
-        let updated_by = row.get::<Option<String>, _>("updated_by_id").map(|uid| {
-            DifficultyEditor {
-                user_id: uid,
-                username: row.get::<Option<String>, _>("updated_by_username").unwrap_or_default(),
-                display_name: row.get::<Option<String>, _>("updated_by_display_name").unwrap_or_default(),
-            }
-        });
+        let updated_by =
+            row.get::<Option<String>, _>("updated_by_id")
+                .map(|uid| DifficultyEditor {
+                    user_id: uid,
+                    username: row
+                        .get::<Option<String>, _>("updated_by_username")
+                        .unwrap_or_default(),
+                    display_name: row
+                        .get::<Option<String>, _>("updated_by_display_name")
+                        .unwrap_or_default(),
+                });
         map.entry(qid).or_default().insert(
             tag,
             QuestionDifficultyValue {

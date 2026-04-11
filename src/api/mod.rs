@@ -98,6 +98,14 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
             axum::routing::patch(questions::handlers::update_question_status),
         )
         .route(
+            "/questions/:question_id/author",
+            axum::routing::patch(questions::handlers::update_question_author),
+        )
+        .route(
+            "/questions/:question_id/reviewer-names",
+            axum::routing::patch(questions::handlers::update_question_reviewer_names),
+        )
+        .route(
             "/questions/:question_id/difficulties",
             axum::routing::post(questions::handlers::create_question_difficulty),
         )

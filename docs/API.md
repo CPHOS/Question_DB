@@ -394,6 +394,8 @@
 | 修改 tags | ✅ (自己的) | ✅ (非 used) | ✅ (被分配的) | ✅ |
 | 替换 file | ✅ (自己的) | ✅ (非 used) | — | ✅ |
 | 修改 status | — | ✅ (none/reviewed) | — | ✅ (任意) |
+| 修改 author | — | — | — | ✅ |
+| 修改 reviewer names | — | — | — | ✅ |
 | 创建难度 | — | ✅ (非 used) | ✅ (被分配的) | ✅ |
 | 修改难度 | — | ✅ (非 used) | ✅ (自己创建的) | ✅ |
 | 删除难度 | — | ✅ (非 used) | ✅ (自己创建的) | ✅ |
@@ -465,7 +467,7 @@
 
 按条件分页查询题目。认证：`viewer` 及以上。
 
-**Query 参数**：`paper_id`, `category`, `tag`, `reviewer`, `assigned_reviewer_id`, `score_min`, `score_max`, `difficulty_tag`, `difficulty_min`, `difficulty_max`, `q`, `created_after`, `created_before`, `updated_after`, `updated_before`, `limit` (1-100, 默认 20), `offset` (默认 0)。
+**Query 参数**：`paper_id`, `category`, `tag`, `reviewer`（支持逗号分隔多值，匹配任一）, `assigned_reviewer_id`, `score_min`, `score_max`, `difficulty_tag`, `difficulty_min`, `difficulty_max`, `q`, `created_after`, `created_before`, `updated_after`, `updated_before`, `limit` (1-100, 默认 20), `offset` (默认 0)。
 
 **成功响应** `200`：分页包裹，`items` 为 `QuestionSummary[]`。
 
@@ -569,6 +571,31 @@
 - **认证**：leader（只能设 `"none"` 或 `"reviewed"`）/ admin / bot（任意合法值）
 - **Content-Type**：`application/json`
 - **请求体**：`{ "status": "none" | "reviewed" | "used" }`
+
+**成功响应** `200`：`QuestionDetail`
+
+---
+
+#### `PATCH /questions/:question_id/author`
+
+更新题目命题人。
+
+- **认证**：admin / bot
+- **Content-Type**：`application/json`
+- **请求体**：`{ "author": "string" }`
+
+**成功响应** `200`：`QuestionDetail`
+
+---
+
+#### `PATCH /questions/:question_id/reviewer-names`
+
+更新题目审题人名称列表（`reviewers` 字符串数组）。
+
+- **认证**：admin / bot
+- **Content-Type**：`application/json`
+- **请求体**：`{ "reviewers": ["string", ...] }`
+- **说明**：自动去重和 trim；允许设为空数组
 
 **成功响应** `200`：`QuestionDetail`
 
