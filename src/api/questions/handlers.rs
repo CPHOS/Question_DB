@@ -464,6 +464,12 @@ pub(crate) async fn create_question_difficulty(
             "you do not have permission to create difficulty entries on this question",
         ));
     }
+    // "human" difficulty tag is restricted to leader or above.
+    if algorithm_tag == "human" && !access.is_admin_or_bot && !access.is_leader {
+        return Err(ApiError::forbidden(
+            "only leader or above can create the 'human' difficulty tag",
+        ));
+    }
     let mut tx = state
         .pool
         .begin()
@@ -531,6 +537,12 @@ pub(crate) async fn update_question_difficulty(
     if !(access.is_admin_or_bot || access.is_leader || access.is_assigned_reviewer) {
         return Err(ApiError::forbidden(
             "you do not have permission to update difficulty entries on this question",
+        ));
+    }
+    // "human" difficulty tag is restricted to leader or above.
+    if algorithm_tag == "human" && !access.is_admin_or_bot && !access.is_leader {
+        return Err(ApiError::forbidden(
+            "only leader or above can modify the 'human' difficulty tag",
         ));
     }
     let mut tx = state
@@ -601,6 +613,12 @@ pub(crate) async fn delete_question_difficulty(
     if !(access.is_admin_or_bot || access.is_leader || access.is_assigned_reviewer) {
         return Err(ApiError::forbidden(
             "you do not have permission to delete difficulty entries on this question",
+        ));
+    }
+    // "human" difficulty tag is restricted to leader or above.
+    if algorithm_tag == "human" && !access.is_admin_or_bot && !access.is_leader {
+        return Err(ApiError::forbidden(
+            "only leader or above can delete the 'human' difficulty tag",
         ));
     }
     let mut tx = state
