@@ -1,0 +1,106 @@
+name: Bug 报告
+description: 报告题库系统中的 Bug（前端、后端、机器人均可）
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提交 Bug 报告！本仓库统一收集题库系统所有组件的问题，包括前端界面、后端 API、机器人以及部署运维等。请尽可能详细地填写以下信息。
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: 问题来源
+      description: 该 Bug 出现在哪个系统组件
+      options:
+        - 后端 API (qb_api)
+        - 前端界面
+        - 机器人 (Bot)
+        - 部署 / 基础设施
+        - LaTeX 模板 (CPHOS-Latex)
+        - 跨组件 / 不确定
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 相关功能模块
+      description: Bug 涉及的业务模块（可多选）
+      multiple: true
+      options:
+        - 认证 / 登录 / 权限
+        - 题目管理
+        - 试卷管理
+        - 难度标签 / 评分
+        - 导出 / 渲染
+        - 用户 / 角色管理
+        - 阅卷人分配 / 审阅
+        - 数据库 / 迁移
+        - UI / 交互
+        - 机器人 / 对接
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug 描述
+      description: 清晰简洁地描述遇到的问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 提供能稳定复现问题的步骤
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 描述你期望看到的正确行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 描述实际发生的错误行为（如涉及 API 请附上 HTTP 状态码和响应体）
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 环境信息
+      description: 相关组件的版本号、浏览器型号、部署方式等
+      placeholder: "例如: qb_api 0.2.1 / Chrome 124 / Docker 部署"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 错误输出 / 截图
+      description: 粘贴服务端日志、浏览器控制台错误、机器人日志或截图
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充信息
+      description: 其他有助于排查的上下文，如请求/响应示例、相关 Issue 链接等
+    validations:
+      required: false
