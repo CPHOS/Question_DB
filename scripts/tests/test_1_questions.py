@@ -830,3 +830,137 @@ def test_difficulty_updated_by_tracks_editor(api, state):
     finally:
         api.login("admin", "changeme")
         api.delete(f"/admin/users/{reviewer_id}")
+
+
+def test_reviewer_cannot_modify_human_difficulty(api, state):
+    """Assigned reviewers (user role) cannot create/update/delete the 'human' difficulty tag.
+
+    Only leader or above should be able to operate on the 'human' tag.
+    """
+    question_id = state.q_ids[0]
+
+    reviewer = api.ensure_user({
+        "username": "e2e_human_blocker",
+        "password": "blocker12345",
+        "role": "user",
+    })
+    reviewer_id = reviewer["user_id"]
+
+    try:
+        # Assign as reviewer so the user has general difficulty-edit access
+        api.post_json(
+            f"/questions/{question_id}/reviewers",
+            {"reviewer_id": reviewer_id},
+        )
+
+        saved = api._access_token
+        api.login("e2e_human_blocker", "blocker12345")
+
+        # ── CREATE human → 403 ──
+        # First delete existing human tag (as admin) so we can test create
+        api.set_token(saved)
+        api.delete(f"/questions/{question_id}/difficulties/human")
+        api.login("e2e_human_blocker", "blocker12345")
+
+        api.post_json(
+            f"/questions/{question_id}/difficulties",
+            {"algorithm_tag": "human", "score": 5},
+            expect=403,
+        )
+
+        # Reviewer CAN create a non-human tag
+        api.post_json(
+            f"/questions/{question_id}/difficulties",
+            {"algorithm_tag": "reviewer_tag", "score": 3},
+        )
+
+        # ── Re-create human tag as admin for update/delete tests ──
+        api.set_token(saved)
+        api.post_json(
+            f"/questions/{question_id}/difficulties",
+            {"algorithm_tag": "human", "score": 4, "notes": "warm-up"},
+        )
+        api.login("e2e_human_blocker", "blocker12345")
+
+        # ── UPDATE human → 403 ──
+        api.patch_json(
+            f"/questions/{question_id}/difficulties/human",
+            {"score": 9},
+            expect=403,
+        )
+
+        # Reviewer CAN update their own non-human tag
+        api.patch_json(
+            f"/questions/{question_id}/difficulties/reviewer_tag",
+            {"score": 6},
+        )
+
+        # ── DELETE human → 403 ──
+        api.delete(
+            f"/questions/{question_id}/difficulties/human",
+            expect=403,
+        )
+
+        # Reviewer CAN delete their own non-human tag
+        api.delete(f"/questions/{question_id}/difficulties/reviewer_tag")
+
+        # Cleanup
+        api.set_token(saved)
+        api.delete(f"/questions/{question_id}/reviewers/{reviewer_id}")
+    finally:
+        api.login("admin", "changeme")
+        api.delete(f"/admin/users/{reviewer_id}")
+
+
+def test_leader_can_modify_human_difficulty(api, state):
+    """Leader role can create/update/delete the 'human' difficulty tag."""
+    question_id = state.q_ids[1]
+
+    leader = api.ensure_user({
+        "username": "e2e_human_leader",
+        "password": "leader12345",
+        "role": "leader",
+        "leader_expires_at": "2099-12-31T23:59:59Z",
+    })
+    leader_id = leader["user_id"]
+
+    try:
+        saved = api._access_token
+
+        # Remove existing human tag so leader can create it fresh
+        api.delete(f"/questions/{question_id}/difficulties/human")
+
+        api.login("e2e_human_leader", "leader12345")
+
+        # ── CREATE human → 200 ──
+        _, body, _ = api.post_json(
+            f"/questions/{question_id}/difficulties",
+            {"algorithm_tag": "human", "score": 6, "notes": "leader set"},
+        )
+        detail = parse_json(body)
+        assert detail["difficulty"]["human"]["score"] == 6
+
+        # ── UPDATE human → 200 ──
+        _, body, _ = api.patch_json(
+            f"/questions/{question_id}/difficulties/human",
+            {"score": 8, "notes": "leader revised"},
+        )
+        detail = parse_json(body)
+        assert detail["difficulty"]["human"]["score"] == 8
+
+        # ── DELETE human → 200 ──
+        _, body, _ = api.delete(
+            f"/questions/{question_id}/difficulties/human",
+        )
+        detail = parse_json(body)
+        assert "human" not in detail["difficulty"]
+
+        # Restore the human tag for subsequent tests
+        api.set_token(saved)
+        api.post_json(
+            f"/questions/{question_id}/difficulties",
+            {"algorithm_tag": "human", "score": 7, "notes": "competition-ready"},
+        )
+    finally:
+        api.login("admin", "changeme")
+        api.delete(f"/admin/users/{leader_id}")
