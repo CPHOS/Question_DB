@@ -92,6 +92,62 @@
 
 **Query 参数**：`paper_id`, `category`, `tag`, `author`, `reviewer`（支持逗号分隔多值，匹配任一）, `assigned_reviewer_id`, `score_min`, `score_max`, `difficulty_tag`, `difficulty_min`, `difficulty_max`, `q`, `created_after`, `created_before`, `updated_after`, `updated_before`, `limit` (1-100, 默认 20), `offset` (默认 0)。
 
+- `tag` 仍用于简单单标签精确匹配
+- 复杂标签组合查询请使用 `POST /questions/search`
+
+**成功响应** `200`：分页包裹，`items` 为 `QuestionSummary[]`。
+
+---
+
+### `POST /questions/search`
+
+按 JSON 逻辑树进行高级题目搜索。认证：`viewer` 及以上。
+
+- **Content-Type**：`application/json`
+- **说明**：除 `tag_filter` 外，其余字段与 `GET /questions` 的过滤字段一致；返回格式也一致
+
+**请求体示例**：
+
+```json
+{
+  "category": "T",
+  "q": "pendulum",
+  "limit": 20,
+  "offset": 0,
+  "tag_filter": {
+    "type": "or",
+    "children": [
+      { "type": "tag", "tag": "mechanics" },
+      {
+        "type": "and",
+        "children": [
+          { "type": "tag", "tag": "contest" },
+          {
+            "type": "not",
+            "child": { "type": "tag", "tag": "deprecated" }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**`tag_filter` 节点结构**：
+
+| `type` | 其他字段 | 说明 |
+|---|---|---|
+| `"tag"` | `tag: string` | 精确匹配单个标签 |
+| `"and"` | `children: TagFilter[]` | 子条件全部满足 |
+| `"or"` | `children: TagFilter[]` | 子条件任一满足 |
+| `"not"` | `child: TagFilter` | 子条件不满足 |
+
+**校验规则**：
+
+- `tag_filter.tag` 会先 trim，不能为空
+- `and` / `or` 的 `children` 不能为空数组
+- 后端只接受固定 JSON 结构并把所有 tag 值作为 SQL 绑定参数处理，不接受原始 SQL / 表达式字符串
+
 **成功响应** `200`：分页包裹，`items` 为 `QuestionSummary[]`。
 
 ---

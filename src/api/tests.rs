@@ -3,9 +3,10 @@ mod tests {
     use crate::api::{
         papers::models::PapersParams,
         questions::models::{
-            CreateDifficultyRequest, CreateQuestionRequest, QuestionsParams, UpdateAuthorRequest,
-            UpdateCategoryRequest, UpdateDescriptionRequest, UpdateDifficultyRequest,
-            UpdateReviewerNamesRequest, UpdateStatusRequest, UpdateTagsRequest,
+            CreateDifficultyRequest, CreateQuestionRequest, QuestionSearchRequest,
+            QuestionTagFilter, QuestionsParams, UpdateAuthorRequest, UpdateCategoryRequest,
+            UpdateDescriptionRequest, UpdateDifficultyRequest, UpdateReviewerNamesRequest,
+            UpdateStatusRequest, UpdateTagsRequest,
         },
     };
 
@@ -19,6 +20,7 @@ mod tests {
             paper_id: Some("550e8400-e29b-41d4-a716-446655440000".into()),
             category: Some("none".into()),
             tag: Some("mechanics".into()),
+            tag_filter: None,
             author: None,
             reviewer: None,
             assigned_reviewer_id: None,
@@ -59,6 +61,7 @@ mod tests {
             paper_id: None,
             category: None,
             tag: None,
+            tag_filter: None,
             author: None,
             reviewer: Some("Alice".into()),
             assigned_reviewer_id: None,
@@ -87,6 +90,7 @@ mod tests {
             paper_id: None,
             category: None,
             tag: None,
+            tag_filter: None,
             author: None,
             reviewer: Some("Alice,Bob".into()),
             assigned_reviewer_id: None,
@@ -107,6 +111,182 @@ mod tests {
         let plan = params.build_query();
         let sql = plan.builder.sql().to_owned();
         assert!(sql.contains("q.reviewers &&"));
+    }
+
+    #[test]
+    fn question_query_builds_boolean_tag_filter_sql() {
+        let params = QuestionsParams {
+            paper_id: None,
+            category: None,
+            tag: None,
+            tag_filter: Some(QuestionTagFilter::And {
+                children: vec![
+                    QuestionTagFilter::Tag {
+                        tag: "mechanics".into(),
+                    },
+                    QuestionTagFilter::Or {
+                        children: vec![
+                            QuestionTagFilter::Tag {
+                                tag: "contest".into(),
+                            },
+                            QuestionTagFilter::Not {
+                                child: Box::new(QuestionTagFilter::Tag {
+                                    tag: "deprecated".into(),
+                                }),
+                            },
+                        ],
+                    },
+                ],
+            }),
+            author: None,
+            reviewer: None,
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+
+        let plan = params.build_query();
+        let sql = plan.builder.sql().to_owned();
+        assert!(sql.contains(" AND (EXISTS (SELECT 1 FROM question_tags qt"));
+        assert!(sql.contains(" OR NOT (EXISTS (SELECT 1 FROM question_tags qt"));
+        assert_eq!(sql.matches("FROM question_tags qt").count(), 3);
+    }
+
+    #[test]
+    fn question_query_combines_simple_tag_and_tag_filter() {
+        let params = QuestionsParams {
+            paper_id: None,
+            category: None,
+            tag: Some("core".into()),
+            tag_filter: Some(QuestionTagFilter::Tag {
+                tag: "mechanics".into(),
+            }),
+            author: None,
+            reviewer: None,
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+
+        let plan = params.build_query();
+        let sql = plan.builder.sql().to_owned();
+        assert_eq!(sql.matches("FROM question_tags qt").count(), 2);
+        assert!(sql.contains(" AND EXISTS (SELECT 1 FROM question_tags qt"));
+    }
+
+    #[test]
+    fn question_search_request_normalizes_tag_filter() {
+        let request = QuestionSearchRequest {
+            paper_id: None,
+            category: None,
+            tag: None,
+            tag_filter: Some(QuestionTagFilter::And {
+                children: vec![QuestionTagFilter::Tag {
+                    tag: " mechanics ".into(),
+                }],
+            }),
+            author: None,
+            reviewer: None,
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+
+        let normalized = request
+            .normalize()
+            .expect("search request should normalize");
+        assert_eq!(
+            normalized.tag_filter,
+            Some(QuestionTagFilter::And {
+                children: vec![QuestionTagFilter::Tag {
+                    tag: "mechanics".into(),
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn question_search_request_rejects_empty_tag_filter_tag() {
+        let request = QuestionSearchRequest {
+            paper_id: None,
+            category: None,
+            tag: None,
+            tag_filter: Some(QuestionTagFilter::Tag { tag: "   ".into() }),
+            author: None,
+            reviewer: None,
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+
+        assert!(request.normalize().is_err());
+    }
+
+    #[test]
+    fn question_search_request_rejects_empty_and_children() {
+        let request = QuestionSearchRequest {
+            paper_id: None,
+            category: None,
+            tag: None,
+            tag_filter: Some(QuestionTagFilter::And { children: vec![] }),
+            author: None,
+            reviewer: None,
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+
+        assert!(request.normalize().is_err());
     }
 
     // -----------------------------------------------------------------------
@@ -494,6 +674,20 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn question_search_json_rejects_unknown_fields() {
+        let result: Result<QuestionSearchRequest, _> =
+            serde_json::from_str(r#"{"q":"ok","extra":1}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn question_search_json_rejects_unknown_tag_filter_fields() {
+        let result: Result<QuestionSearchRequest, _> =
+            serde_json::from_str(r#"{"tag_filter":{"type":"tag","tag":"mechanics","extra":1}}"#);
+        assert!(result.is_err());
+    }
+
     // -----------------------------------------------------------------------
     // JSON deserialization: valid payloads
     // -----------------------------------------------------------------------
@@ -525,6 +719,32 @@ mod tests {
         let req: CreateDifficultyRequest =
             serde_json::from_str(r#"{"algorithm_tag":"ml","score":5,"notes":"test"}"#).unwrap();
         assert_eq!(req.notes.as_deref(), Some("test"));
+    }
+
+    #[test]
+    fn question_search_json_parses_nested_tag_filter() {
+        let req: QuestionSearchRequest = serde_json::from_str(
+            r#"{
+                "q":"pendulum",
+                "tag_filter":{
+                    "type":"or",
+                    "children":[
+                        {"type":"tag","tag":"mechanics"},
+                        {
+                            "type":"not",
+                            "child":{"type":"tag","tag":"deprecated"}
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(req.q.as_deref(), Some("pendulum"));
+        assert!(matches!(
+            req.tag_filter,
+            Some(QuestionTagFilter::Or { children }) if children.len() == 2
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -582,6 +802,7 @@ mod tests {
             paper_id: None,
             category: Some("X".into()),
             tag: None,
+            tag_filter: None,
             author: None,
             reviewer: None,
             assigned_reviewer_id: None,
@@ -608,6 +829,7 @@ mod tests {
             paper_id: None,
             category: None,
             tag: None,
+            tag_filter: None,
             author: None,
             reviewer: None,
             assigned_reviewer_id: None,
@@ -634,6 +856,7 @@ mod tests {
             paper_id: None,
             category: Some("T".into()),
             tag: Some("optics".into()),
+            tag_filter: None,
             author: None,
             reviewer: None,
             assigned_reviewer_id: None,
@@ -660,6 +883,7 @@ mod tests {
             paper_id: None,
             category: None,
             tag: None,
+            tag_filter: None,
             author: None,
             reviewer: None,
             assigned_reviewer_id: None,
@@ -677,6 +901,64 @@ mod tests {
             offset: None,
         };
         assert!(validate_question_filters(&params).is_err());
+    }
+
+    #[test]
+    fn question_filter_rejects_invalid_tag_filter() {
+        use crate::api::questions::queries::validate_question_filters;
+        let params = QuestionsParams {
+            paper_id: None,
+            category: None,
+            tag: None,
+            tag_filter: Some(QuestionTagFilter::Or { children: vec![] }),
+            author: None,
+            reviewer: None,
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+        assert!(validate_question_filters(&params).is_err());
+    }
+
+    #[test]
+    fn question_filter_accepts_valid_tag_filter() {
+        use crate::api::questions::queries::validate_question_filters;
+        let params = QuestionsParams {
+            paper_id: None,
+            category: None,
+            tag: None,
+            tag_filter: Some(QuestionTagFilter::Not {
+                child: Box::new(QuestionTagFilter::Tag {
+                    tag: "mechanics".into(),
+                }),
+            }),
+            author: None,
+            reviewer: None,
+            assigned_reviewer_id: None,
+            score_min: None,
+            score_max: None,
+            difficulty_tag: None,
+            difficulty_min: None,
+            difficulty_max: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            q: None,
+            limit: None,
+            offset: None,
+        };
+        assert!(validate_question_filters(&params).is_ok());
     }
 
     // -----------------------------------------------------------------------

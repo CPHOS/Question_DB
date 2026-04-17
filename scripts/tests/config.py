@@ -41,6 +41,15 @@ def _cfg(key: str, default: str) -> str:
     return os.environ.get(key, _dotenv.get(key, default))
 
 
+def _cfg_any(keys: tuple[str, ...], default: str) -> str:
+    """Resolve config from the first present key across env and .env."""
+    for key in keys:
+        value = os.environ.get(key, _dotenv.get(key))
+        if value is not None:
+            return value
+    return default
+
+
 POSTGRES_USER = _cfg("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = _cfg("POSTGRES_PASSWORD", "postgres")
 POSTGRES_DB = _cfg("POSTGRES_DB", "qb")
@@ -49,5 +58,5 @@ POSTGRES_MAJOR = _cfg("QB_POSTGRES_MAJOR", "16")
 CONTAINER_NAME = _cfg("CONTAINER_NAME", "qb-postgres-e2e")
 POSTGRES_IMAGE = _cfg("POSTGRES_IMAGE", f"postgres:{POSTGRES_MAJOR}")
 POSTGRES_PORT = _cfg("POSTGRES_PORT", "55433")
-API_PORT = _cfg("QB_BIND_PORT", "8080")
+API_PORT = _cfg_any(("QB_BIND_PORT", "API_PORT"), "18080")
 DB_URL = f"postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@127.0.0.1:{POSTGRES_PORT}/{POSTGRES_DB}"

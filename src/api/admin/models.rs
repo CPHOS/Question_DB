@@ -128,6 +128,7 @@ impl AdminQuestionsParams {
             paper_id: self.paper_id.clone(),
             category: self.category.clone(),
             tag: self.tag.clone(),
+            tag_filter: None,
             author: self.author.clone(),
             reviewer: self.reviewer.clone(),
             assigned_reviewer_id: self.assigned_reviewer_id.clone(),

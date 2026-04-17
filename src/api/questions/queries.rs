@@ -8,7 +8,7 @@ use sqlx::{postgres::PgRow, query, PgPool, Postgres, QueryBuilder, Row};
 use super::models::{
     validate_question_category, DifficultyEditor, QuestionAssetRef, QuestionDetail,
     QuestionDifficulty, QuestionDifficultyValue, QuestionPaperRef, QuestionSourceRef,
-    QuestionSummary, QuestionsParams,
+    QuestionSummary, QuestionTagFilter, QuestionsParams,
 };
 use crate::api::shared::{
     pagination::{normalize_limit, normalize_offset},
@@ -66,6 +66,10 @@ impl QuestionsParams {
                 .push(" AND EXISTS (SELECT 1 FROM question_tags qt WHERE qt.question_id = q.question_id AND qt.tag = ")
                 .push_bind(tag)
                 .push(")");
+        }
+        if let Some(tag_filter) = &self.tag_filter {
+            builder.push(" AND ");
+            push_question_tag_filter(&mut builder, tag_filter);
         }
         if let Some(reviewer) = &self.reviewer {
             let names: Vec<&str> = reviewer
@@ -191,6 +195,9 @@ pub(crate) fn validate_question_filters(params: &QuestionsParams) -> Result<()> 
             return Err(anyhow!("difficulty_tag must not be empty"));
         }
     }
+    if let Some(tag_filter) = &params.tag_filter {
+        let _ = tag_filter.clone().normalize()?;
+    }
     if (params.difficulty_min.is_some() || params.difficulty_max.is_some())
         && params.difficulty_tag.is_none()
     {
@@ -239,6 +246,45 @@ pub(crate) fn validate_question_filters(params: &QuestionsParams) -> Result<()> 
             .map_err(|_| anyhow!("assigned_reviewer_id must be a valid UUID"))?;
     }
     Ok(())
+}
+
+fn push_question_tag_filter<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    tag_filter: &'a QuestionTagFilter,
+) {
+    match tag_filter {
+        QuestionTagFilter::Tag { tag } => {
+            builder
+                .push("EXISTS (SELECT 1 FROM question_tags qt WHERE qt.question_id = q.question_id AND qt.tag = ")
+                .push_bind(tag)
+                .push(")");
+        }
+        QuestionTagFilter::And { children } => {
+            builder.push('(');
+            for (idx, child) in children.iter().enumerate() {
+                if idx > 0 {
+                    builder.push(" AND ");
+                }
+                push_question_tag_filter(builder, child);
+            }
+            builder.push(')');
+        }
+        QuestionTagFilter::Or { children } => {
+            builder.push('(');
+            for (idx, child) in children.iter().enumerate() {
+                if idx > 0 {
+                    builder.push(" OR ");
+                }
+                push_question_tag_filter(builder, child);
+            }
+            builder.push(')');
+        }
+        QuestionTagFilter::Not { child } => {
+            builder.push("NOT (");
+            push_question_tag_filter(builder, child);
+            builder.push(')');
+        }
+    }
 }
 
 pub(crate) async fn execute_questions_query(

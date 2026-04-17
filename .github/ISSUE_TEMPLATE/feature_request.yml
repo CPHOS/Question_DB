@@ -41,7 +41,7 @@ body:
       label: 期望的解决方案
       description: 描述你期望的功能行为，如有具体的 API 设计或交互方式请一并说明
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: alternatives
