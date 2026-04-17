@@ -26,7 +26,7 @@
 | `GET /auth/me` | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `PATCH /auth/me/password` | — | ✅ | ✅ | ✅ | — | ✅ |
 | `POST /auth/logout` | — | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `GET` questions/papers/tags | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `GET /questions`, `POST /questions/search`, `GET` questions/papers/tags | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `POST` bundles | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `POST /questions`（上传） | — | — | ✅ | ✅ | ✅ | ✅ |
 | `PATCH /questions/:id`（更新） | — | — | ⚠️¹ | ⚠️³ | ✅ | ✅ |

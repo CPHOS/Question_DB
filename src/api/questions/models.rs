@@ -102,11 +102,45 @@ pub(crate) struct QuestionDifficultyTagsResponse {
     pub(crate) difficulty_tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum QuestionTagFilter {
+    Tag { tag: String },
+    And { children: Vec<QuestionTagFilter> },
+    Or { children: Vec<QuestionTagFilter> },
+    Not { child: Box<QuestionTagFilter> },
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct QuestionsParams {
     pub(crate) paper_id: Option<String>,
     pub(crate) category: Option<String>,
     pub(crate) tag: Option<String>,
+    pub(crate) tag_filter: Option<QuestionTagFilter>,
+    pub(crate) author: Option<String>,
+    pub(crate) reviewer: Option<String>,
+    pub(crate) assigned_reviewer_id: Option<String>,
+    pub(crate) score_min: Option<i32>,
+    pub(crate) score_max: Option<i32>,
+    pub(crate) difficulty_tag: Option<String>,
+    pub(crate) difficulty_min: Option<i32>,
+    pub(crate) difficulty_max: Option<i32>,
+    pub(crate) created_after: Option<String>,
+    pub(crate) created_before: Option<String>,
+    pub(crate) updated_after: Option<String>,
+    pub(crate) updated_before: Option<String>,
+    pub(crate) q: Option<String>,
+    pub(crate) limit: Option<i64>,
+    pub(crate) offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct QuestionSearchRequest {
+    pub(crate) paper_id: Option<String>,
+    pub(crate) category: Option<String>,
+    pub(crate) tag: Option<String>,
+    pub(crate) tag_filter: Option<QuestionTagFilter>,
     pub(crate) author: Option<String>,
     pub(crate) reviewer: Option<String>,
     pub(crate) assigned_reviewer_id: Option<String>,
@@ -347,6 +381,75 @@ impl QuestionBundleRequest {
     }
 }
 
+impl QuestionTagFilter {
+    pub(crate) fn normalize(self) -> Result<Self> {
+        let mut node_count = 0;
+        self.normalize_inner(1, &mut node_count)
+    }
+
+    fn normalize_inner(self, depth: usize, node_count: &mut usize) -> Result<Self> {
+        const MAX_TAG_FILTER_DEPTH: usize = 16;
+        const MAX_TAG_FILTER_NODES: usize = 128;
+
+        if depth > MAX_TAG_FILTER_DEPTH {
+            bail!("tag_filter nesting must not exceed {MAX_TAG_FILTER_DEPTH} levels");
+        }
+
+        *node_count += 1;
+        if *node_count > MAX_TAG_FILTER_NODES {
+            bail!("tag_filter must not contain more than {MAX_TAG_FILTER_NODES} nodes");
+        }
+
+        match self {
+            Self::Tag { tag } => {
+                let tag = tag.trim().to_string();
+                if tag.is_empty() {
+                    bail!("tag_filter tag must not be empty");
+                }
+                Ok(Self::Tag { tag })
+            }
+            Self::And { children } => Ok(Self::And {
+                children: normalize_tag_filter_children("and", children, depth, node_count)?,
+            }),
+            Self::Or { children } => Ok(Self::Or {
+                children: normalize_tag_filter_children("or", children, depth, node_count)?,
+            }),
+            Self::Not { child } => Ok(Self::Not {
+                child: Box::new(child.normalize_inner(depth + 1, node_count)?),
+            }),
+        }
+    }
+}
+
+impl QuestionSearchRequest {
+    pub(crate) fn normalize(self) -> Result<QuestionsParams> {
+        Ok(QuestionsParams {
+            paper_id: self.paper_id,
+            category: self.category,
+            tag: self.tag,
+            tag_filter: self
+                .tag_filter
+                .map(QuestionTagFilter::normalize)
+                .transpose()?,
+            author: self.author,
+            reviewer: self.reviewer,
+            assigned_reviewer_id: self.assigned_reviewer_id,
+            score_min: self.score_min,
+            score_max: self.score_max,
+            difficulty_tag: self.difficulty_tag,
+            difficulty_min: self.difficulty_min,
+            difficulty_max: self.difficulty_max,
+            created_after: self.created_after,
+            created_before: self.created_before,
+            updated_after: self.updated_after,
+            updated_before: self.updated_before,
+            q: self.q,
+            limit: self.limit,
+            offset: self.offset,
+        })
+    }
+}
+
 fn normalize_category(value: &str) -> Result<String> {
     let normalized = value.trim().to_string();
     validate_question_category(&normalized)?;
@@ -380,6 +483,22 @@ fn normalize_tags(values: Vec<String>) -> Result<Vec<String>> {
     Ok(normalized)
 }
 
+fn normalize_tag_filter_children(
+    operator: &str,
+    children: Vec<QuestionTagFilter>,
+    depth: usize,
+    node_count: &mut usize,
+) -> Result<Vec<QuestionTagFilter>> {
+    if children.is_empty() {
+        bail!("tag_filter {operator} must contain at least one child");
+    }
+
+    children
+        .into_iter()
+        .map(|child| child.normalize_inner(depth + 1, node_count))
+        .collect()
+}
+
 fn normalize_bundle_ids(field_name: &str, ids: Vec<String>) -> Result<Vec<String>> {
     if ids.is_empty() {
         return Err(anyhow!("{field_name} must not be empty"));
@@ -406,6 +525,18 @@ fn normalize_bundle_ids(field_name: &str, ids: Vec<String>) -> Result<Vec<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn nested_not_filter(levels: usize) -> QuestionTagFilter {
+        let mut filter = QuestionTagFilter::Tag {
+            tag: "mechanics".into(),
+        };
+        for _ in 0..levels {
+            filter = QuestionTagFilter::Not {
+                child: Box::new(filter),
+            };
+        }
+        filter
+    }
 
     #[test]
     fn create_request_normalizes_with_defaults() {
@@ -547,5 +678,61 @@ mod tests {
             notes: None,
         };
         assert!(req.normalize().is_err());
+    }
+
+    #[test]
+    fn question_tag_filter_normalizes_nested_tags() {
+        let normalized = QuestionTagFilter::Not {
+            child: Box::new(QuestionTagFilter::And {
+                children: vec![QuestionTagFilter::Tag {
+                    tag: " mechanics ".into(),
+                }],
+            }),
+        }
+        .normalize()
+        .expect("tag filter should normalize");
+
+        assert_eq!(
+            normalized,
+            QuestionTagFilter::Not {
+                child: Box::new(QuestionTagFilter::And {
+                    children: vec![QuestionTagFilter::Tag {
+                        tag: "mechanics".into(),
+                    }],
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn question_tag_filter_rejects_excessive_depth() {
+        let result = nested_not_filter(16).normalize();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn question_tag_filter_rejects_excessive_nodes() {
+        let result = QuestionTagFilter::And {
+            children: (0..128)
+                .map(|idx| QuestionTagFilter::Tag {
+                    tag: format!("tag-{idx}"),
+                })
+                .collect(),
+        }
+        .normalize();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn question_tag_filter_accepts_maximum_node_count() {
+        let result = QuestionTagFilter::And {
+            children: (0..127)
+                .map(|idx| QuestionTagFilter::Tag {
+                    tag: format!("tag-{idx}"),
+                })
+                .collect(),
+        }
+        .normalize();
+        assert!(result.is_ok());
     }
 }

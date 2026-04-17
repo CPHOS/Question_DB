@@ -35,6 +35,22 @@ def assert_question_query(
         )
 
 
+def assert_question_search(
+    api: ApiClient, payload: dict, expected_ids: list[str],
+) -> None:
+    _, body, _ = api.post_json("/questions/search", payload)
+    actual = question_ids_from_body(body)
+    if expected_ids:
+        missing = set(expected_ids) - set(actual)
+        assert not missing, (
+            f"search {payload}: missing {sorted(missing)} from {sorted(actual)}"
+        )
+    else:
+        assert actual == [], (
+            f"search {payload}: expected empty, got {sorted(actual)}"
+        )
+
+
 def _apply_question_patch(api: ApiClient, question_id: str, patch: dict) -> None:
     """Apply per-field PATCH / POST calls to match the spec['patch'] dict.
 
@@ -386,6 +402,120 @@ def test_filter_questions(api, state):
     # Invalid date format → 400
     api.get("/questions?created_after=not-a-date", expect=400)
     api.get("/questions?updated_before=abc", expect=400)
+
+
+def test_search_questions(api, state):
+    """POST /questions/search supports boolean tag logic and shared filters."""
+    qs = state.q_by_slug
+
+    assert_question_search(
+        api,
+        {
+            "tag_filter": {
+                "type": "or",
+                "children": [
+                    {"type": "tag", "tag": "mechanics"},
+                    {"type": "tag", "tag": "optics"},
+                ],
+            },
+            "limit": 100,
+            "offset": 0,
+        },
+        [qs["mechanics"], qs["optics"]],
+    )
+
+    assert_question_search(
+        api,
+        {
+            "tag_filter": {
+                "type": "and",
+                "children": [
+                    {"type": "tag", "tag": "mechanics"},
+                    {
+                        "type": "not",
+                        "child": {"type": "tag", "tag": "optics"},
+                    },
+                ],
+            },
+        },
+        [qs["mechanics"]],
+    )
+
+    assert_question_search(
+        api,
+        {
+            "tag": "mechanics",
+            "tag_filter": {
+                "type": "or",
+                "children": [
+                    {"type": "tag", "tag": "mechanics"},
+                    {"type": "tag", "tag": "optics"},
+                ],
+            },
+        },
+        [qs["mechanics"]],
+    )
+
+    assert_question_search(
+        api,
+        {
+            "q": "热学",
+            "tag_filter": {"type": "tag", "tag": "thermal"},
+            "difficulty_tag": "human",
+            "difficulty_min": 5,
+            "difficulty_max": 5,
+        },
+        [qs["thermal"]],
+    )
+
+    assert_question_search(
+        api,
+        {
+            "category": "E",
+            "tag_filter": {
+                "type": "or",
+                "children": [
+                    {"type": "tag", "tag": "mechanics"},
+                    {"type": "tag", "tag": "optics"},
+                ],
+            },
+        },
+        [qs["optics"]],
+    )
+
+
+def test_search_questions_validation(api):
+    api.post_json(
+        "/questions/search",
+        {"tag_filter": {"type": "tag", "tag": "   "}},
+        expect=400,
+    )
+    api.post_json(
+        "/questions/search",
+        {"tag_filter": {"type": "and", "children": []}},
+        expect=400,
+    )
+    api.post_json(
+        "/questions/search",
+        {"difficulty_min": 5},
+        expect=400,
+    )
+    api.post_json(
+        "/questions/search",
+        {"q": "ok", "extra": 1},
+        expect=400,
+    )
+    api.post_json(
+        "/questions/search",
+        {
+            "tag_filter": {
+                "type": "tag",
+                "tag": "mechanics",
+                "extra": 1,
+            },
+        },
+        expect=400,
+    )
 
 
 def test_filter_questions_by_author(api, state):

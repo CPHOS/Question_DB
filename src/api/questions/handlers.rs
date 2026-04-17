@@ -1,5 +1,6 @@
 use anyhow::Context;
 use axum::{
+    body::Bytes,
     extract::{Multipart, Path as AxumPath, Query, State},
     response::Response,
     Extension, Json,
@@ -13,10 +14,10 @@ use super::{
     models::{
         CreateDifficultyRequest, CreateQuestionRequest, QuestionBundleRequest,
         QuestionDeleteResponse, QuestionDetail, QuestionDifficultyTagsResponse,
-        QuestionFileReplaceResponse, QuestionImportResponse, QuestionSummary, QuestionTagsResponse,
-        QuestionsParams, UpdateAuthorRequest, UpdateCategoryRequest, UpdateDescriptionRequest,
-        UpdateDifficultyRequest, UpdateReviewerNamesRequest, UpdateStatusRequest,
-        UpdateTagsRequest,
+        QuestionFileReplaceResponse, QuestionImportResponse, QuestionSearchRequest,
+        QuestionSummary, QuestionTagsResponse, QuestionsParams, UpdateAuthorRequest,
+        UpdateCategoryRequest, UpdateDescriptionRequest, UpdateDifficultyRequest,
+        UpdateReviewerNamesRequest, UpdateStatusRequest, UpdateTagsRequest,
     },
     queries::{
         execute_questions_query, list_active_difficulty_tags, list_active_question_tags,
@@ -41,6 +42,25 @@ use crate::api::{
 pub(crate) async fn list_questions(
     Query(params): Query<QuestionsParams>,
     State(state): State<AppState>,
+) -> ApiResult<Paginated<QuestionSummary>> {
+    execute_question_search(&state, params).await
+}
+
+pub(crate) async fn search_questions(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> ApiResult<Paginated<QuestionSummary>> {
+    let request: QuestionSearchRequest = serde_json::from_slice(&body)
+        .map_err(|err| ApiError::bad_request(format!("invalid JSON body: {err}")))?;
+    let params = request
+        .normalize()
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    execute_question_search(&state, params).await
+}
+
+async fn execute_question_search(
+    state: &AppState,
+    params: QuestionsParams,
 ) -> ApiResult<Paginated<QuestionSummary>> {
     validate_question_filters(&params).map_err(|e| ApiError::bad_request(e.to_string()))?;
     let mut plan = params.build_query();
