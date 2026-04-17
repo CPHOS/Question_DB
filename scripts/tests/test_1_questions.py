@@ -914,7 +914,7 @@ def test_reviewer_cannot_modify_human_difficulty(api, state):
 
 def test_leader_can_modify_human_difficulty(api, state):
     """Leader role can create/update/delete the 'human' difficulty tag."""
-    question_id = state.q_ids[1]
+    question_id = state.q_ids[2]
 
     leader = api.ensure_user({
         "username": "e2e_human_leader",

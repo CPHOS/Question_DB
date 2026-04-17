@@ -130,7 +130,7 @@ pub(crate) struct MessageResponse {
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateUserRequest {
     pub(crate) username: String,
-    pub(crate) password: String,
+    pub(crate) password: Option<String>,
     pub(crate) display_name: Option<String>,
     pub(crate) role: Option<String>,
     pub(crate) leader_expires_at: Option<String>,
@@ -148,6 +148,27 @@ pub(crate) struct UpdateUserRequest {
 #[derive(Debug, Deserialize)]
 pub(crate) struct ResetPasswordRequest {
     pub(crate) new_password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct AdminUserResponse {
+    #[serde(flatten)]
+    pub(crate) profile: UserProfile,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) token_type: Option<&'static str>,
+}
+
+impl AdminUserResponse {
+    pub(crate) fn new(profile: UserProfile, access_token: Option<String>) -> Self {
+        let token_type = access_token.as_ref().map(|_| "Bearer");
+        Self {
+            profile,
+            access_token,
+            token_type,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

@@ -129,8 +129,7 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         )
         .route(
             "/papers",
-            axum::routing::get(papers::handlers::list_papers)
-                .post(papers::handlers::create_paper),
+            axum::routing::get(papers::handlers::list_papers).post(papers::handlers::create_paper),
         )
         .route(
             "/papers/:paper_id",

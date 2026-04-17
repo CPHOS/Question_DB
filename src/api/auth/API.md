@@ -1,18 +1,19 @@
 # Auth API
 
-> 认证和授权接口，基于 JWT access token + 不透明 refresh token。
+> 认证和授权接口。普通用户使用 JWT access token + 不透明 refresh token；bot 使用管理员签发的长期 access token。
 
 ## 概述
 
-- **Access Token**：JWT (HS256)，有效期 **1800 秒（30 分钟）**
-- **Refresh Token**：不透明 UUID 字符串，有效期 **7 天**，一次性消费（轮换）
+- **普通用户 Access Token**：JWT (HS256)，有效期 **1800 秒（30 分钟）**
+- **Bot Access Token**：管理员生成的长期不透明 token，无过期时间，只会在重新签发或停用 bot 后失效
+- **Refresh Token**：仅普通用户可用；不透明 UUID 字符串，有效期 **7 天**，一次性消费（轮换）
 - **传递方式**：`Authorization: Bearer <access_token>`
 - **密码存储**：Argon2id
 - **角色**：5 级角色体系，基于能力而非线性层级
   - `viewer`：只读 + bundle 下载
   - `user`：可上传题目，编辑自己创建的题目，可被分配为审阅人
   - `leader`：可创建题目和试卷，可编辑/删除非 used 状态的题目，可修改/删除自己创建的试卷，可分配审阅人，也可被分配为审阅人；有过期时间，过期后降级为 user
-  - `bot`：与 admin 相同的数据操作权限（题目/试卷的完整读写），但无 ops 和用户管理权限；无过期时间，用于自动化程序
+  - `bot`：与 admin 相同的数据操作权限（题目/试卷的完整读写），但无 ops 和用户管理权限；不支持用户名密码登录，只能使用管理员签发的长期 access token
   - `admin`：全部权限 + ops + 用户管理 + 垃圾回收
 
 ## 权限矩阵
@@ -23,7 +24,7 @@
 | `POST /auth/login` | ✅ | — | — | — | — | — |
 | `POST /auth/refresh` | ✅ | — | — | — | — | — |
 | `GET /auth/me` | — | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `PATCH /auth/me/password` | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `PATCH /auth/me/password` | — | ✅ | ✅ | ✅ | — | ✅ |
 | `POST /auth/logout` | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `GET` questions/papers/tags | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `POST` bundles | — | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -57,13 +58,15 @@
 
 **请首次登录后立即修改密码。**
 
+Bot 账号不会自动生成；管理员创建或轮换 bot 账号时，接口会返回一次 access token，后端只保存其哈希值。
+
 ---
 
 ## Endpoints
 
 ### `POST /auth/login`
 
-用户名密码登录，获取 token 对。
+用户名密码登录，获取 token 对。仅适用于非 bot 账号。
 
 - **认证**：无需
 - **Content-Type**：`application/json`
@@ -98,7 +101,7 @@
 | 状态码 | 场景 |
 |---|---|
 | `400` | 缺少 username 或 password |
-| `401` | 用户名或密码错误 / 账号已停用 |
+| `401` | 用户名或密码错误 / 账号已停用 / bot 账号必须使用管理员签发的 access token |
 
 ---
 
@@ -199,9 +202,9 @@
 
 ### `PATCH /auth/me/password`
 
-修改当前用户密码。
+修改当前用户密码。bot 账号不支持该操作。
 
-- **认证**：`viewer` 及以上
+- **认证**：`viewer` / `user` / `leader` / `admin`
 - **Content-Type**：`application/json`
 
 **请求体**：

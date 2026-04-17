@@ -80,6 +80,8 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d --build
 
 首次上线后请立即登录并修改默认管理员密码。
 
+如果需要自动化 bot，请在管理员界面创建 bot 账号并保存接口返回的 access token；后端不会再次展示该 token 明文。
+
 ## 4. 验证部署结果
 
 查看容器状态：
@@ -221,3 +223,13 @@ docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
 - 迁移后，旧的 `editor` 角色用户会自动变为 `user` 角色
 - 历史数据的 `created_by` 字段为 `NULL`，不影响功能
 - 如果使用备份恢复，确保备份文件是迁移后的版本，否则需重新执行迁移
+
+### `0003_bot_access_tokens.sql` — bot access token 认证
+
+该迁移将 bot 账号从“密码登录”切换为“管理员签发的长期 access token”模式。
+
+**迁移内容**：
+
+1. `users.password_hash` 改为可空，供 bot 账号禁用密码登录
+2. 新增 `users.bot_token_hash` 和 `users.bot_token_created_at`
+3. 使已有 bot 的密码哈希和 refresh token 失效，避免继续走旧登录链路

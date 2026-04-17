@@ -42,4 +42,8 @@ pub(crate) fn router() -> Router<super::AppState> {
             "/admin/users/:user_id/reset-password",
             axum::routing::post(handlers::reset_password),
         )
+        .route(
+            "/admin/users/:user_id/access-token",
+            axum::routing::post(handlers::rotate_bot_access_token),
+        )
 }

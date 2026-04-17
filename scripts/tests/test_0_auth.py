@@ -424,17 +424,71 @@ def test_create_leader_with_expiry(api):
 
 
 def test_create_bot_user(api):
-    """Creating a bot user succeeds."""
+    """Creating a bot user returns a one-time access token."""
     user = api.ensure_user({
         "username": "e2e_bot",
-        "password": "bot123456",
         "role": "bot",
     })
     assert user["role"] == "bot"
     assert user["leader_expires_at"] is None
+    assert user["token_type"] == "Bearer"
+    assert user["access_token"].startswith("qbt_")
 
     # Cleanup
     api.delete(f"/admin/users/{user['user_id']}")
+
+
+def test_bot_cannot_use_password_login(api):
+    """Bot accounts must authenticate with admin-issued access tokens only."""
+    bot = api.ensure_user({
+        "username": "e2e_bot_login_disabled",
+        "role": "bot",
+    })
+
+    saved = api._access_token
+    try:
+        api.set_token(None)
+        api._do(
+            "POST", "/auth/login", expect=401,
+            headers={"content-type": "application/json"},
+            body=b'{"username":"e2e_bot_login_disabled","password":"whatever"}',
+        )
+
+        api.set_token(bot["access_token"])
+        _, body, _ = api.get("/auth/me")
+        profile = parse_json(body)
+        assert profile["username"] == "e2e_bot_login_disabled"
+        assert profile["role"] == "bot"
+    finally:
+        api.set_token(saved)
+        api.delete(f"/admin/users/{bot['user_id']}")
+
+
+def test_bot_password_endpoints_rejected(api):
+    """Bot accounts cannot change or reset passwords."""
+    bot = api.ensure_user({
+        "username": "e2e_bot_password_disabled",
+        "role": "bot",
+    })
+
+    saved = api._access_token
+    try:
+        api.set_token(bot["access_token"])
+        api.patch_json(
+            "/auth/me/password",
+            {"old_password": "old", "new_password": "newpass123"},
+            expect=403,
+        )
+
+        api.set_token(saved)
+        api.post_json(
+            f"/admin/users/{bot['user_id']}/reset-password",
+            {"new_password": "newpass123"},
+            expect=400,
+        )
+    finally:
+        api.set_token(saved)
+        api.delete(f"/admin/users/{bot['user_id']}")
 
 
 def test_update_user_to_leader_requires_expiry(api):

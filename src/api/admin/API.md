@@ -3,8 +3,9 @@
 > 管理员接口：查看/恢复软删除数据、垃圾回收、用户管理。
 
 - 所有 `/admin/*` 接口需要 `admin` 角色
-- 所有请求需携带 `Authorization: Bearer <access_token>` 头
+- 所有请求需携带 `Authorization: Bearer <access_token>` 头；此处仅接受管理员的 JWT access token
 - `deleted_by` 返回执行删除操作的用户 UUID（鉴权上线前创建的记录该字段为 `null`）
+- bot 账号不支持密码登录；管理员创建 bot 或轮换 token 时，接口只返回一次明文 access token
 
 ---
 
@@ -198,7 +199,7 @@
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---|---|---|
 | `username` | string | ✅ | — | 用户名，trim 后非空，唯一 |
-| `password` | string | ✅ | — | 密码，长度 ≥ 6 |
+| `password` | string | 条件必填 | — | 非 bot 账号必填，长度 ≥ 6；bot 账号不可传 |
 | `display_name` | string | — | `""` | 显示名 |
 | `role` | `"viewer"` \| `"user"` \| `"leader"` \| `"bot"` \| `"admin"` | — | `"viewer"` | 角色 |
 | `leader_expires_at` | string(RFC 3339) | 条件必填 | — | Leader 角色过期时间；角色为 `leader` 时必填 |
@@ -213,13 +214,22 @@
 }
 ```
 
-**成功响应** `200`：`UserProfile` 对象。
+**成功响应** `200`：`AdminUserResponse`。
+
+普通账号返回字段与 `UserProfile` 相同。
+
+如果创建的是 bot，还会额外返回：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `access_token` | string | 新生成的 bot access token，仅本次响应可见 |
+| `token_type` | `"Bearer"` | 固定值 |
 
 **错误**：
 
 | 状态码 | 场景 |
 |---|---|
-| `400` | 参数校验失败 / leader 角色未提供 leader_expires_at |
+| `400` | 参数校验失败 / leader 角色未提供 leader_expires_at / bot 账号错误传入 password |
 | `409` | 用户名已存在 |
 
 ---
@@ -253,8 +263,12 @@
 
 - 不允许管理员将自己设为 `is_active=false`
 - 设置 `role` 为 `leader` 时，必须在当次请求或用户已有记录中提供 `leader_expires_at`
+- 设置 `role` 为 `bot` 时，会清除密码登录方式并签发一个新的 access token
+- 将 `bot` 改回非 bot 角色时，会清除 bot access token；如需密码登录，随后应调用 `POST /admin/users/:user_id/reset-password`
 
-**成功响应** `200`：更新后的 `UserProfile`。
+**成功响应** `200`：更新后的 `AdminUserResponse`。
+
+只有“首次切换为 bot”的这次响应会额外包含 `access_token` 和 `token_type`。
 
 **错误**：
 
@@ -276,6 +290,7 @@
 
 - 设置 `is_active = false`
 - 撤销该用户的所有 refresh token
+- 如果是 bot，其 access token 也会立即失效（鉴权时检查 `is_active`）
 - 不允许停用自己
 
 **成功响应** `200`：
@@ -297,7 +312,7 @@
 
 ### `POST /admin/users/:user_id/reset-password`
 
-管理员重置指定用户密码。
+管理员重置指定用户密码。bot 账号不支持该操作。
 
 - **认证**：`admin`
 - **路径参数**：`user_id` — UUID
@@ -332,5 +347,31 @@
 
 | 状态码 | 场景 |
 |---|---|
-| `400` | 密码长度不足 6 |
+| `400` | 密码长度不足 6 / 目标用户是 bot |
+| `404` | 用户不存在 |
+
+---
+
+### `POST /admin/users/:user_id/access-token`
+
+为 bot 账号轮换 access token。
+
+- **认证**：`admin`
+- **路径参数**：`user_id` — UUID
+- **Content-Type**：`application/json`
+- **请求体**：`{}`
+
+**行为**：
+
+- 仅允许目标用户当前角色为 `bot`
+- 覆盖旧 token，并返回新的明文 token（旧 token 立即失效）
+- 撤销该用户历史 refresh token（兼容旧数据）
+
+**成功响应** `200`：`AdminUserResponse`，其中一定包含 `access_token` 和 `token_type`。
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | 目标用户不是 bot |
 | `404` | 用户不存在 |

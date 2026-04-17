@@ -63,7 +63,7 @@ src/
 - `objects`
   单表保存任意上传文件的元数据与二进制内容。
 - `users`
-  用户表，含 `role`（viewer / user / leader / bot / admin）、`leader_expires_at` 等字段。
+  用户表，含 `role`（viewer / user / leader / bot / admin）、`leader_expires_at`、普通账号密码哈希，以及 bot access token 哈希等字段。
 - `questions`
   保存题目固定 metadata，以及软删除字段 `deleted_at` / `deleted_by` 和 `created_by`（创建者）。
 - `question_files`
@@ -327,7 +327,7 @@ curl -X POST http://127.0.0.1:8080/papers \
 | `viewer` | 只读 + bundle 下载 |
 | `user` | 可上传题目，编辑自己创建的题目，可被分配为审阅人 |
 | `leader` | 可创建/编辑/删除题目和试卷（非 used），可分配审阅人；有过期时间，过期后降级为 user |
-| `bot` | 同 leader 权限，无过期时间，用于自动化程序 |
+| `bot` | 同 leader 权限，无过期时间，用于自动化程序；不支持密码登录，由 admin 签发长期 access token |
 | `admin` | 全部权限 + ops + 用户管理 + 垃圾回收 |
 
 Leader 角色在创建时必须指定 `leader_expires_at` 过期时间。JWT 中间件会在每次请求时检查过期时间，过期后自动将角色降级为 `user`。
@@ -384,7 +384,7 @@ cd scripts && python3 -m pytest tests/ -v
 
 | 模块 | 覆盖内容 |
 |------|----------|
-| `test_0_auth` | 登录、token 刷新、权限矩阵、5 角色权限检查、leader 过期降级 |
+| `test_0_auth` | 登录、token 刷新、bot access token、权限矩阵、5 角色权限检查、leader 过期降级 |
 | `test_1_questions` | 题目 CRUD、标签/难度标签列表、difficulty 筛选、日期范围筛选、文件替换、bundle、审阅人管理 |
 | `test_2_papers` | 试卷 CRUD、日期范围筛选、试卷 bundle、题目排序与渲染、所有权校验 |
 | `test_3_ops` | 导出、质量检查、数据库备份恢复、权限验证 |

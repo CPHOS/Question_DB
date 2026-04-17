@@ -3,7 +3,7 @@
 > 运维操作接口：数据导出、质量检查、数据库备份与恢复。批量打包接口见 [Questions API](../questions/API.md) 和 [Papers API](../papers/API.md)。
 
 - 所有 Ops 接口需要 `admin` 角色
-- 所有请求需携带 `Authorization: Bearer <access_token>` 头
+- 所有请求需携带 `Authorization: Bearer <access_token>` 头；此处仅接受管理员的 JWT access token
 
 ---
 

@@ -18,7 +18,7 @@ pub(crate) struct UserRow {
     pub(crate) username: String,
     #[allow(dead_code)]
     pub(crate) display_name: String,
-    pub(crate) password_hash: String,
+    pub(crate) password_hash: Option<String>,
     pub(crate) role: String,
     pub(crate) is_active: bool,
     pub(crate) leader_expires_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -59,6 +59,34 @@ pub(crate) async fn find_user_by_id(pool: &PgPool, user_id: &str) -> Result<Opti
     .fetch_optional(pool)
     .await
     .context("find user by id failed")?;
+
+    Ok(row.map(|r| UserRow {
+        user_id: r.get("user_id"),
+        username: r.get("username"),
+        display_name: r.get("display_name"),
+        password_hash: r.get("password_hash"),
+        role: r.get("role"),
+        is_active: r.get("is_active"),
+        leader_expires_at: r.get("leader_expires_at"),
+    }))
+}
+
+pub(crate) async fn find_bot_user_by_access_token_hash(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<Option<UserRow>> {
+    let row = query(
+        r#"SELECT user_id::text AS user_id, username, display_name,
+                  password_hash, role, is_active, leader_expires_at
+           FROM users
+           WHERE role = 'bot'
+             AND is_active = TRUE
+             AND bot_token_hash = $1"#,
+    )
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await
+    .context("find bot user by access token hash failed")?;
 
     Ok(row.map(|r| UserRow {
         user_id: r.get("user_id"),
@@ -135,7 +163,10 @@ pub(crate) async fn search_users(
     .await
     .context("search users failed")?;
 
-    let total = rows.first().map(|r| r.get::<i64, _>("total_count")).unwrap_or(0);
+    let total = rows
+        .first()
+        .map(|r| r.get::<i64, _>("total_count"))
+        .unwrap_or(0);
     let users = rows
         .into_iter()
         .map(|r| UserProfile {
@@ -229,9 +260,10 @@ pub(crate) async fn create_user(
     pool: &PgPool,
     username: &str,
     display_name: &str,
-    password_hash: &str,
+    password_hash: Option<&str>,
     role: &str,
     leader_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    bot_token_hash: Option<&str>,
 ) -> Result<UserProfile> {
     // Check uniqueness explicitly for better error message
     let exists = query("SELECT 1 FROM users WHERE username = $1")
@@ -245,8 +277,16 @@ pub(crate) async fn create_user(
     }
 
     let row = query(
-        r#"INSERT INTO users (username, display_name, password_hash, role, leader_expires_at)
-           VALUES ($1, $2, $3, $4, $5)
+        r#"INSERT INTO users (
+               username,
+               display_name,
+               password_hash,
+               role,
+               leader_expires_at,
+               bot_token_hash,
+               bot_token_created_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $6 IS NULL THEN NULL ELSE NOW() END)
            RETURNING user_id::text AS user_id,
                      username, display_name, role, is_active,
                      to_char(leader_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS leader_expires_at,
@@ -258,6 +298,7 @@ pub(crate) async fn create_user(
     .bind(password_hash)
     .bind(role)
     .bind(leader_expires_at)
+    .bind(bot_token_hash)
     .fetch_one(pool)
     .await
     .context("create user failed")?;
@@ -326,6 +367,8 @@ pub(crate) async fn update_user(
     role: Option<&str>,
     is_active: Option<bool>,
     leader_expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    password_hash: Option<Option<&str>>,
+    bot_token_hash: Option<Option<&str>>,
 ) -> Result<UserProfile> {
     // Verify user exists
     let exists = query("SELECT 1 FROM users WHERE user_id = $1::uuid")
@@ -338,7 +381,13 @@ pub(crate) async fn update_user(
         return Err(NotFoundError(format!("user not found: {user_id}")).into());
     }
 
-    if display_name.is_none() && role.is_none() && is_active.is_none() && leader_expires_at.is_none() {
+    if display_name.is_none()
+        && role.is_none()
+        && is_active.is_none()
+        && leader_expires_at.is_none()
+        && password_hash.is_none()
+        && bot_token_hash.is_none()
+    {
         return Err(ValidationError("at least one field must be provided".into()).into());
     }
 
@@ -348,6 +397,13 @@ pub(crate) async fn update_user(
                role = COALESCE($3, role),
                is_active = COALESCE($4, is_active),
                leader_expires_at = CASE WHEN $5::boolean THEN $6::timestamptz ELSE leader_expires_at END,
+               password_hash = CASE WHEN $7::boolean THEN $8 ELSE password_hash END,
+               bot_token_hash = CASE WHEN $9::boolean THEN $10 ELSE bot_token_hash END,
+               bot_token_created_at = CASE
+                   WHEN $9::boolean AND $10 IS NULL THEN NULL
+                   WHEN $9::boolean THEN NOW()
+                   ELSE bot_token_created_at
+               END,
                updated_at = NOW()
            WHERE user_id = $1::uuid
            RETURNING user_id::text AS user_id, username, display_name, role, is_active,
@@ -361,6 +417,10 @@ pub(crate) async fn update_user(
     .bind(is_active)
     .bind(leader_expires_at.is_some()) // $5: whether to update leader_expires_at
     .bind(leader_expires_at.flatten()) // $6: the new value (None = set NULL)
+    .bind(password_hash.is_some())
+    .bind(password_hash.flatten())
+    .bind(bot_token_hash.is_some())
+    .bind(bot_token_hash.flatten())
     .fetch_one(pool)
     .await
     .context("update user failed")?;

@@ -396,9 +396,9 @@ def test_bot_can_modify_any_paper(api, state):
     """Bot role can PATCH/PUT/DELETE papers created by other users."""
     bot = api.ensure_user({
         "username": "e2e_bot_paper",
-        "password": "botpaper123",
         "role": "bot",
     })
+    bot_token = bot["access_token"]
 
     # Papers in state were created by admin; bot should still be able to modify them.
     paper_id = state.theory_paper_ids[0]
@@ -406,7 +406,7 @@ def test_bot_can_modify_any_paper(api, state):
 
     saved = api._access_token
     try:
-        api.login("e2e_bot_paper", "botpaper123")
+        api.set_token(bot_token)
 
         # PATCH — bot patches a paper it does not own
         _, body, _ = api.patch_json(

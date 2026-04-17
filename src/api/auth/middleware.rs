@@ -7,38 +7,64 @@ use chrono::Utc;
 
 use super::{
     models::{CurrentUser, Role},
-    token::decode_access_token,
+    queries::{find_bot_user_by_access_token_hash, find_user_by_id},
+    token::{decode_access_token, hash_bot_access_token},
 };
 use crate::api::{shared::error::ApiError, AppState};
 
-/// Middleware: extract and validate JWT, inject `CurrentUser` into extensions.
-/// If the token role is `leader` but `leader_exp` has passed, downgrade to `user`.
+/// Middleware: accept either a JWT access token (regular users) or an
+/// admin-issued opaque bot access token, then inject `CurrentUser`.
 pub(crate) async fn require_auth(
     State(state): State<AppState>,
     mut req: Request<Body>,
     next: Next,
 ) -> Result<Response, ApiError> {
     let token = extract_bearer_token(&req)?;
-    let claims = decode_access_token(token, &state.jwt_secret)
-        .map_err(|_| ApiError::unauthorized("invalid or expired token"))?;
+    let current = if let Ok(claims) = decode_access_token(token, &state.jwt_secret) {
+        let user = find_user_by_id(&state.pool, &claims.sub)
+            .await
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::unauthorized("invalid or expired token"))?;
 
-    let mut role = Role::from_str(&claims.role)
-        .ok_or_else(|| ApiError::unauthorized("invalid role in token"))?;
+        if !user.is_active {
+            return Err(ApiError::unauthorized("account is disabled"));
+        }
 
-    // Leader expiry check: downgrade expired leader to user.
-    if role == Role::Leader {
-        if let Some(leader_exp) = claims.leader_exp {
-            if Utc::now().timestamp() > leader_exp {
-                role = Role::User;
+        let mut role = Role::from_str(&user.role)
+            .ok_or_else(|| ApiError::unauthorized("invalid role in token"))?;
+        if role == Role::Bot {
+            return Err(ApiError::unauthorized(
+                "bot users must use admin-issued access token",
+            ));
+        }
+
+        if role == Role::Leader {
+            if let Some(leader_exp) = user.leader_expires_at {
+                if Utc::now() > leader_exp {
+                    role = Role::User;
+                }
             }
         }
-    }
 
-    let current = CurrentUser {
-        user_id: claims.sub,
-        username: claims.username,
-        display_name: claims.display_name,
-        role,
+        CurrentUser {
+            user_id: user.user_id,
+            username: user.username,
+            display_name: user.display_name,
+            role,
+        }
+    } else {
+        let token_hash = hash_bot_access_token(token);
+        let user = find_bot_user_by_access_token_hash(&state.pool, &token_hash)
+            .await
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::unauthorized("invalid or expired token"))?;
+
+        CurrentUser {
+            user_id: user.user_id,
+            username: user.username,
+            display_name: user.display_name,
+            role: Role::Bot,
+        }
     };
 
     req.extensions_mut().insert(current);

@@ -5,7 +5,7 @@
 - **`GET` 操作和 `POST /papers/bundles`**：需要任意已认证角色（`viewer` 及以上）
 - **`POST /papers`（创建）**：需要 `leader` / `bot` / `admin`（即 `can_create_paper` 能力）
 - **`PATCH / PUT / DELETE`（修改/删除）**：admin/bot 可操作任何试卷；leader 只能操作自己创建的试卷
-- 所有请求需携带 `Authorization: Bearer <access_token>` 头
+- 所有请求需携带 `Authorization: Bearer <access_token>` 头；普通账号使用 JWT access token，bot 使用管理员签发的长期 access token
 
 ---
 

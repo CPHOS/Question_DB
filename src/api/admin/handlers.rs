@@ -19,11 +19,12 @@ use super::{
 use crate::api::{
     auth::{
         models::{
-            AdminUsersParams, CreateUserRequest, CurrentUser, MessageResponse,
+            AdminUserResponse, AdminUsersParams, CreateUserRequest, CurrentUser, MessageResponse,
             ResetPasswordRequest, Role, UpdateUserRequest, UserProfile,
         },
         password::hash_password,
         queries as auth_queries,
+        token::{generate_bot_access_token, hash_bot_access_token},
     },
     shared::{
         error::{ApiError, ApiResult},
@@ -167,47 +168,85 @@ pub(crate) async fn list_users(
 pub(crate) async fn create_user(
     State(state): State<AppState>,
     Json(req): Json<CreateUserRequest>,
-) -> ApiResult<UserProfile> {
+) -> ApiResult<AdminUserResponse> {
     let username = req.username.trim();
     if username.is_empty() {
         return Err(ApiError::bad_request("username must not be empty"));
     }
-    if req.password.len() < 6 {
-        return Err(ApiError::bad_request(
-            "password must be at least 6 characters",
-        ));
-    }
 
     let role_str = req.role.as_deref().unwrap_or("viewer");
-    if Role::from_str(role_str).is_none() {
+    let role = if let Some(role) = Role::from_str(role_str) {
+        role
+    } else {
         return Err(ApiError::bad_request(
             "role must be one of: viewer, user, leader, bot, admin",
         ));
+    };
+
+    let password = req.password.as_deref().map(str::trim);
+    match role {
+        Role::Bot => {
+            if password.is_some() {
+                return Err(ApiError::bad_request(
+                    "bot users do not accept password; use access token instead",
+                ));
+            }
+        }
+        _ => {
+            let password = password
+                .ok_or_else(|| ApiError::bad_request("password is required for non-bot users"))?;
+            if password.len() < 6 {
+                return Err(ApiError::bad_request(
+                    "password must be at least 6 characters",
+                ));
+            }
+        }
     }
 
     // Parse leader_expires_at if provided (required for leader role).
     let leader_expires_at = if let Some(ref expires_str) = req.leader_expires_at {
-        let dt = chrono::DateTime::parse_from_rfc3339(expires_str)
-            .map_err(|_| ApiError::bad_request("leader_expires_at must be a valid RFC 3339 timestamp"))?;
+        let dt = chrono::DateTime::parse_from_rfc3339(expires_str).map_err(|_| {
+            ApiError::bad_request("leader_expires_at must be a valid RFC 3339 timestamp")
+        })?;
         Some(dt.with_timezone(&chrono::Utc))
     } else {
         None
     };
 
-    if role_str == "leader" && leader_expires_at.is_none() {
-        return Err(ApiError::bad_request("leader_expires_at is required when creating a leader"));
+    if role == Role::Leader && leader_expires_at.is_none() {
+        return Err(ApiError::bad_request(
+            "leader_expires_at is required when creating a leader",
+        ));
     }
 
     let display_name = req.display_name.as_deref().unwrap_or("");
-    let pw_hash =
-        hash_password(&req.password).map_err(|_| ApiError::internal("password hash error"))?;
+    let (password_hash, access_token, bot_token_hash) = match role {
+        Role::Bot => {
+            let access_token = generate_bot_access_token();
+            let token_hash = hash_bot_access_token(&access_token);
+            (None, Some(access_token), Some(token_hash))
+        }
+        _ => {
+            let password = password.expect("validated password should exist");
+            let pw_hash =
+                hash_password(password).map_err(|_| ApiError::internal("password hash error"))?;
+            (Some(pw_hash), None, None)
+        }
+    };
 
-    let profile =
-        auth_queries::create_user(&state.pool, username, display_name, &pw_hash, role_str, leader_expires_at)
-            .await
-            .map_err(ApiError::from)?;
+    let profile = auth_queries::create_user(
+        &state.pool,
+        username,
+        display_name,
+        password_hash.as_deref(),
+        role_str,
+        leader_expires_at,
+        bot_token_hash.as_deref(),
+    )
+    .await
+    .map_err(ApiError::from)?;
 
-    Ok(Json(profile))
+    Ok(Json(AdminUserResponse::new(profile, access_token)))
 }
 
 pub(crate) async fn update_user(
@@ -215,13 +254,20 @@ pub(crate) async fn update_user(
     Extension(current): Extension<CurrentUser>,
     State(state): State<AppState>,
     Json(req): Json<UpdateUserRequest>,
-) -> ApiResult<UserProfile> {
+) -> ApiResult<AdminUserResponse> {
     parse_uuid_param(&user_id, "user_id")?;
 
     // Prevent admin from deactivating themselves
     if req.is_active == Some(false) && current.user_id == user_id {
         return Err(ApiError::bad_request("cannot deactivate your own account"));
     }
+
+    let existing = auth_queries::find_user_by_id(&state.pool, &user_id)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::not_found("user not found"))?;
+    let existing_role = Role::from_str(&existing.role)
+        .ok_or_else(|| ApiError::internal("invalid role in database"))?;
 
     if let Some(role_str) = &req.role {
         if Role::from_str(role_str).is_none() {
@@ -231,12 +277,17 @@ pub(crate) async fn update_user(
         }
     }
 
+    let target_role_str = req.role.as_deref().unwrap_or(&existing.role);
+    let target_role = Role::from_str(target_role_str)
+        .ok_or_else(|| ApiError::internal("invalid role in database"))?;
+
     // Parse leader_expires_at if provided.
-    let leader_expires_at: Option<Option<chrono::DateTime<chrono::Utc>>> =
+    let mut leader_expires_at: Option<Option<chrono::DateTime<chrono::Utc>>> =
         if let Some(ref outer) = req.leader_expires_at {
             if let Some(ref expires_str) = outer {
-                let dt = chrono::DateTime::parse_from_rfc3339(expires_str)
-                    .map_err(|_| ApiError::bad_request("leader_expires_at must be a valid RFC 3339 timestamp"))?;
+                let dt = chrono::DateTime::parse_from_rfc3339(expires_str).map_err(|_| {
+                    ApiError::bad_request("leader_expires_at must be a valid RFC 3339 timestamp")
+                })?;
                 Some(Some(dt.with_timezone(&chrono::Utc)))
             } else {
                 Some(None) // explicitly set to null
@@ -246,24 +297,40 @@ pub(crate) async fn update_user(
         };
 
     // If setting role to leader, require leader_expires_at.
-    if req.role.as_deref() == Some("leader") {
+    if target_role == Role::Leader {
         // Must either provide leader_expires_at in this request, or it must already be set.
         let will_have_expiry = match &leader_expires_at {
             Some(Some(_)) => true,
             _ => false,
         };
         if !will_have_expiry {
-            // Check if user already has leader_expires_at set.
-            let existing = auth_queries::find_user_by_id(&state.pool, &user_id)
-                .await
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError::not_found("user not found"))?;
             if existing.leader_expires_at.is_none() {
                 return Err(ApiError::bad_request(
                     "leader_expires_at is required when setting role to leader",
                 ));
             }
         }
+    } else if req.role.is_some() && req.leader_expires_at.is_none() {
+        leader_expires_at = Some(None);
+    }
+
+    let mut issued_access_token = None;
+    let mut password_hash_update: Option<Option<&str>> = None;
+    let mut bot_token_hash_update: Option<Option<&str>> = None;
+    let bot_token_hash = if target_role == Role::Bot && existing_role != Role::Bot {
+        let access_token = generate_bot_access_token();
+        let token_hash = hash_bot_access_token(&access_token);
+        issued_access_token = Some(access_token);
+        password_hash_update = Some(None);
+        Some(token_hash)
+    } else {
+        None
+    };
+
+    if let Some(token_hash) = bot_token_hash.as_deref() {
+        bot_token_hash_update = Some(Some(token_hash));
+    } else if target_role != Role::Bot && existing_role == Role::Bot {
+        bot_token_hash_update = Some(None);
     }
 
     let profile = auth_queries::update_user(
@@ -273,11 +340,19 @@ pub(crate) async fn update_user(
         req.role.as_deref(),
         req.is_active,
         leader_expires_at,
+        password_hash_update,
+        bot_token_hash_update,
     )
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(profile))
+    if target_role == Role::Bot {
+        auth_queries::revoke_all_refresh_tokens(&state.pool, &user_id)
+            .await
+            .map_err(ApiError::from)?;
+    }
+
+    Ok(Json(AdminUserResponse::new(profile, issued_access_token)))
 }
 
 pub(crate) async fn delete_user(
@@ -313,11 +388,18 @@ pub(crate) async fn reset_password(
         ));
     }
 
-    // Verify user exists
-    auth_queries::find_user_by_id(&state.pool, &user_id)
+    // Verify user exists and supports password login.
+    let user = auth_queries::find_user_by_id(&state.pool, &user_id)
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
+    let role =
+        Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
+    if role == Role::Bot {
+        return Err(ApiError::bad_request(
+            "bot users do not support password login",
+        ));
+    }
 
     let new_hash =
         hash_password(&req.new_password).map_err(|_| ApiError::internal("password hash error"))?;
@@ -333,4 +415,44 @@ pub(crate) async fn reset_password(
     Ok(Json(MessageResponse {
         message: "password reset",
     }))
+}
+
+pub(crate) async fn rotate_bot_access_token(
+    AxumPath(user_id): AxumPath<String>,
+    State(state): State<AppState>,
+) -> ApiResult<AdminUserResponse> {
+    parse_uuid_param(&user_id, "user_id")?;
+
+    let user = auth_queries::find_user_by_id(&state.pool, &user_id)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::not_found("user not found"))?;
+    let role =
+        Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
+    if role != Role::Bot {
+        return Err(ApiError::bad_request(
+            "access token rotation is only supported for bot users",
+        ));
+    }
+
+    let access_token = generate_bot_access_token();
+    let token_hash = hash_bot_access_token(&access_token);
+    let profile = auth_queries::update_user(
+        &state.pool,
+        &user_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(Some(token_hash.as_str())),
+    )
+    .await
+    .map_err(ApiError::from)?;
+
+    auth_queries::revoke_all_refresh_tokens(&state.pool, &user_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(AdminUserResponse::new(profile, Some(access_token))))
 }

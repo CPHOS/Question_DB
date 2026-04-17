@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use crate::api::questions::models::{validate_question_category, QuestionSummary};
 use crate::api::shared::{
     pagination::{normalize_limit, normalize_offset},
-    utils::{normalize_bundle_description, normalize_optional_bundle_description, validate_timestamp_param},
+    utils::{
+        normalize_bundle_description, normalize_optional_bundle_description,
+        validate_timestamp_param,
+    },
 };
 
 #[derive(Debug, Serialize)]

@@ -99,7 +99,8 @@ class ApiClient:
         Returns the user profile dict (with ``user_id``).
         """
         username = payload["username"]
-        password = payload["password"]
+        role = payload.get("role", "viewer")
+        password = payload.get("password")
         url = f"http://127.0.0.1:{API_PORT}/admin/users"
         req = urllib.request.Request(
             url,
@@ -133,6 +134,12 @@ class ApiClient:
         if "display_name" in payload:
             patch["display_name"] = payload["display_name"]
         self.patch_json(f"/admin/users/{uid}", patch)
+
+        if role == "bot":
+            _, body, _ = self.post_json(f"/admin/users/{uid}/access-token", {})
+            return parse_json(body)
+
+        assert password is not None, "non-bot test users must provide a password"
 
         # Reset password so the test can login with the expected credentials.
         self.post_json(f"/admin/users/{uid}/reset-password", {

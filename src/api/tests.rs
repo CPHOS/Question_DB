@@ -3,10 +3,9 @@ mod tests {
     use crate::api::{
         papers::models::PapersParams,
         questions::models::{
-            CreateDifficultyRequest, CreateQuestionRequest, QuestionsParams,
-            UpdateAuthorRequest, UpdateCategoryRequest, UpdateDescriptionRequest,
-            UpdateDifficultyRequest, UpdateReviewerNamesRequest, UpdateStatusRequest,
-            UpdateTagsRequest,
+            CreateDifficultyRequest, CreateQuestionRequest, QuestionsParams, UpdateAuthorRequest,
+            UpdateCategoryRequest, UpdateDescriptionRequest, UpdateDifficultyRequest,
+            UpdateReviewerNamesRequest, UpdateStatusRequest, UpdateTagsRequest,
         },
     };
 
@@ -335,9 +334,7 @@ mod tests {
 
     #[test]
     fn update_reviewer_names_accepts_empty_array() {
-        let req = UpdateReviewerNamesRequest {
-            reviewers: vec![],
-        };
+        let req = UpdateReviewerNamesRequest { reviewers: vec![] };
         assert_eq!(req.normalize().unwrap(), Vec::<String>::new());
     }
 
@@ -510,8 +507,7 @@ mod tests {
 
     #[test]
     fn update_tags_json_parses_valid() {
-        let req: UpdateTagsRequest =
-            serde_json::from_str(r#"{"tags":["a","b"]}"#).unwrap();
+        let req: UpdateTagsRequest = serde_json::from_str(r#"{"tags":["a","b"]}"#).unwrap();
         assert_eq!(req.tags, vec!["a", "b"]);
     }
 

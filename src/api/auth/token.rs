@@ -71,11 +71,25 @@ pub(crate) fn generate_refresh_token() -> String {
     Uuid::new_v4().to_string()
 }
 
-/// SHA-256 hash of a refresh token (stored in the database).
-pub(crate) fn hash_refresh_token(token: &str) -> String {
+/// Generate a long-lived opaque access token for bot users.
+pub(crate) fn generate_bot_access_token() -> String {
+    format!("qbt_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+}
+
+fn hash_opaque_token(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+/// SHA-256 hash of a refresh token (stored in the database).
+pub(crate) fn hash_refresh_token(token: &str) -> String {
+    hash_opaque_token(token)
+}
+
+/// SHA-256 hash of a bot access token (stored in the database).
+pub(crate) fn hash_bot_access_token(token: &str) -> String {
+    hash_opaque_token(token)
 }
 
 /// Compute the expiration timestamp for a new refresh token.
@@ -104,5 +118,13 @@ mod tests {
     fn refresh_token_hash_is_deterministic() {
         let t = "some-random-token";
         assert_eq!(hash_refresh_token(t), hash_refresh_token(t));
+    }
+
+    #[test]
+    fn bot_access_token_has_expected_prefix() {
+        let token = generate_bot_access_token();
+        assert!(token.starts_with("qbt_"));
+        assert!(token.len() > 32);
+        assert_eq!(hash_bot_access_token(&token), hash_bot_access_token(&token));
     }
 }

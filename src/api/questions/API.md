@@ -2,7 +2,7 @@
 
 > 题目的增删改查、文件替换、审阅人管理、难度管理和批量打包接口。
 
-所有请求需携带 `Authorization: Bearer <access_token>` 头。
+所有请求需携带 `Authorization: Bearer <access_token>` 头。普通账号使用 JWT access token；bot 使用管理员签发的长期 access token。
 
 ### 权限模型（Trait-based）
 

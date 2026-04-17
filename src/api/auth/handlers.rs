@@ -43,16 +43,33 @@ pub(crate) async fn login(
         return Err(ApiError::unauthorized("account is disabled"));
     }
 
-    let valid = verify_password(password, &user.password_hash)
+    let role =
+        Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
+    if role == Role::Bot {
+        return Err(ApiError::unauthorized(
+            "bot users must use admin-issued access token",
+        ));
+    }
+
+    let password_hash = user
+        .password_hash
+        .as_deref()
+        .ok_or_else(|| ApiError::unauthorized("password login is disabled for this account"))?;
+    let valid = verify_password(password, password_hash)
         .map_err(|_| ApiError::internal("password verification error"))?;
     if !valid {
         return Err(ApiError::unauthorized("invalid username or password"));
     }
 
-    let role =
-        Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
-
-    issue_tokens(&state, &user.user_id, &user.username, &user.display_name, role, user.leader_expires_at).await
+    issue_tokens(
+        &state,
+        &user.user_id,
+        &user.username,
+        &user.display_name,
+        role,
+        user.leader_expires_at,
+    )
+    .await
 }
 
 pub(crate) async fn refresh(
@@ -80,8 +97,21 @@ pub(crate) async fn refresh(
 
     let role =
         Role::from_str(&user.role).ok_or_else(|| ApiError::internal("invalid role in database"))?;
+    if role == Role::Bot {
+        return Err(ApiError::unauthorized(
+            "bot users must use admin-issued access token",
+        ));
+    }
 
-    issue_tokens(&state, &user.user_id, &user.username, &user.display_name, role, user.leader_expires_at).await
+    issue_tokens(
+        &state,
+        &user.user_id,
+        &user.username,
+        &user.display_name,
+        role,
+        user.leader_expires_at,
+    )
+    .await
 }
 
 pub(crate) async fn logout(
@@ -114,6 +144,12 @@ pub(crate) async fn change_password(
     State(state): State<AppState>,
     Json(req): Json<ChangePasswordRequest>,
 ) -> ApiResult<MessageResponse> {
+    if current.role == Role::Bot {
+        return Err(ApiError::forbidden(
+            "bot users do not support password login",
+        ));
+    }
+
     if req.new_password.len() < 6 {
         return Err(ApiError::bad_request(
             "new password must be at least 6 characters",
@@ -125,7 +161,11 @@ pub(crate) async fn change_password(
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
 
-    let valid = verify_password(&req.old_password, &user.password_hash)
+    let password_hash = user
+        .password_hash
+        .as_deref()
+        .ok_or_else(|| ApiError::forbidden("password login is disabled for this account"))?;
+    let valid = verify_password(&req.old_password, password_hash)
         .map_err(|_| ApiError::internal("password verification error"))?;
     if !valid {
         return Err(ApiError::unauthorized("old password is incorrect"));
@@ -152,7 +192,9 @@ pub(crate) async fn search_users(
     }
     let keyword = params.q.as_deref().unwrap_or("").trim();
     if keyword.is_empty() {
-        return Err(ApiError::bad_request("q parameter is required and must not be empty"));
+        return Err(ApiError::bad_request(
+            "q parameter is required and must not be empty",
+        ));
     }
     let limit = crate::api::shared::pagination::normalize_limit(params.limit);
     let offset = crate::api::shared::pagination::normalize_offset(params.offset);
@@ -179,8 +221,15 @@ async fn issue_tokens(
     role: Role,
     leader_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> ApiResult<TokenResponse> {
-    let access = create_access_token(user_id, username, display_name, role, leader_expires_at, &state.jwt_secret)
-        .map_err(|_| ApiError::internal("token creation failed"))?;
+    let access = create_access_token(
+        user_id,
+        username,
+        display_name,
+        role,
+        leader_expires_at,
+        &state.jwt_secret,
+    )
+    .map_err(|_| ApiError::internal("token creation failed"))?;
 
     let refresh = generate_refresh_token();
     let refresh_hash = hash_refresh_token(&refresh);
