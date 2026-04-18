@@ -225,27 +225,12 @@ pub(crate) async fn replace_question_file(
     let (file_name, bytes) = read_uploaded_file(&mut multipart).await?;
     validate_upload_size(&bytes, MAX_UPLOAD_BYTES)?;
 
-    // Look up the creator's current display_name for resetting the author field.
-    let creator_display_name = if let Some(ref created_by) = access.created_by {
-        query("SELECT display_name FROM users WHERE user_id = $1::uuid")
-            .bind(created_by)
-            .fetch_optional(&state.pool)
-            .await
-            .context("look up creator display_name failed")
-            .map_err(ApiError::from)?
-            .map(|r| r.get::<String, _>("display_name"))
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
-
     Ok(Json(
         replace_question_zip(
             &state.pool,
             &question_id,
             file_name.as_deref(),
             bytes,
-            &creator_display_name,
         )
         .await
         .map_err(ApiError::from)?,
@@ -790,7 +775,6 @@ async fn fetch_question_detail(
 struct QuestionAccessInfo {
     #[allow(dead_code)]
     status: String,
-    created_by: Option<String>,
     is_admin_or_bot: bool,
     is_leader: bool,
     is_owner: bool,
@@ -838,7 +822,6 @@ async fn load_question_access(
 
     Ok(QuestionAccessInfo {
         status,
-        created_by,
         is_admin_or_bot,
         is_leader,
         is_owner,

@@ -29,7 +29,7 @@
 - "非 used" 指 `status != 'used'` 的题目
 - "被分配的" 指在 `question_reviews` 表中被 leader 分配为审阅人的题目（user 和 leader 均可被分配）
 - reviewer 进行任意操作时，自动将其 display_name 加入 `questions.reviewers` 数组（去重）
-- 替换文件时，后端自动重置 difficulty（清空）、status（`none`）、author（创建者 display_name）、reviewers（`[]`）
+- 替换文件时，后端仅更新题目文件、`source_tex_path`、从 TeX 提取出的 `score`、以及 `updated_at`
 - 上传时，后端自动设置 difficulty 为空、status 为 `none`、author 为上传者 display_name、reviewers 为 `[]`
 - 后端自动维护 `created_by`、`created_at`、`updated_at`
 - 题目创建者（`created_by`）始终可修改自己题目的 description、category、tags 和 file，不受 status 限制
@@ -200,7 +200,7 @@
 - **Content-Type**：`multipart/form-data`
 - **字段**：`file`（binary zip）
 
-**自动重置**：`difficulty`（清空所有条目）、`status` → `"none"`、`author` → 创建者当前 display_name、`reviewers` → `[]`。
+**后端行为**：仅替换题目文件，并更新 `source_tex_path`、从 TeX 提取出的 `score`、以及 `updated_at`；不会改动 `status`、`author`、`reviewers`、`difficulty`。
 
 **成功响应** `200`：`{ "question_id", "file_name", "source_tex_path", "imported_assets", "status": "replaced" }`
 

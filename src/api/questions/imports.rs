@@ -102,7 +102,6 @@ pub(crate) async fn replace_question_zip(
     question_id: &str,
     file_name: Option<&str>,
     zip_bytes: Vec<u8>,
-    creator_display_name: &str,
 ) -> Result<QuestionFileReplaceResponse> {
     if zip_bytes.is_empty() {
         return Err(ValidationError("uploaded file is empty".into()).into());
@@ -132,22 +131,12 @@ pub(crate) async fn replace_question_zip(
 
     replace_question_files_tx(&mut tx, question_id, &loaded).await?;
 
-    // Reset difficulty, status, author, reviewers to creation state.
-    query("DELETE FROM question_difficulties WHERE question_id = $1::uuid")
-        .bind(question_id)
-        .execute(&mut *tx)
-        .await
-        .context("clear question difficulties on file replace failed")?;
-
-    let empty_reviewers: Vec<String> = vec![];
     query(
-        "UPDATE questions SET source_tex_path = $2, score = $3, status = 'none', author = $4, reviewers = $5, updated_at = NOW() WHERE question_id = $1::uuid",
+        "UPDATE questions SET source_tex_path = $2, score = $3, updated_at = NOW() WHERE question_id = $1::uuid",
     )
     .bind(question_id)
     .bind(&loaded.tex_file.path)
     .bind(loaded.score)
-    .bind(creator_display_name)
-    .bind(&empty_reviewers)
     .execute(&mut *tx)
     .await
     .context("update question on file replace failed")?;
