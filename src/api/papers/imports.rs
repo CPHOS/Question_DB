@@ -1,20 +1,20 @@
 use std::io::Cursor;
 
 use anyhow::{bail, Context, Result};
-use sqlx::{query, PgPool, Row};
+use sqlx::{query, Row};
 use uuid::Uuid;
 use zip::ZipArchive;
 
 use super::models::{NormalizedCreatePaperRequest, PaperFileReplaceResponse, PaperImportResponse};
 use crate::api::shared::{
-    db::{insert_object_tx, normalize_upload_file_name},
+    db::{normalize_upload_file_name, ObjectStore},
     error::{NotFoundError, ValidationError},
 };
 
 pub(crate) const MAX_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
 
 pub(crate) async fn import_paper_zip(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     file_name: Option<&str>,
     request: &NormalizedCreatePaperRequest,
     zip_bytes: Vec<u8>,
@@ -22,9 +22,17 @@ pub(crate) async fn import_paper_zip(
 ) -> Result<PaperImportResponse> {
     let paper_id = Uuid::new_v4().to_string();
     let normalized_file_name = normalize_optional_paper_file_name(file_name, &zip_bytes)?;
-    let mut tx = pool.begin().await.context("begin paper import tx failed")?;
+    let mut tx = object_store
+        .pool()
+        .begin()
+        .await
+        .context("begin paper import tx failed")?;
     let append_object_id = if let Some(file_name) = normalized_file_name.as_deref() {
-        Some(insert_object_tx(&mut tx, file_name, &zip_bytes, Some("application/zip")).await?)
+        Some(
+            object_store
+                .insert_object_tx(&mut tx, file_name, &zip_bytes, Some("application/zip"))
+                .await?,
+        )
     } else {
         None
     };
@@ -74,7 +82,7 @@ pub(crate) async fn import_paper_zip(
 }
 
 pub(crate) async fn replace_paper_zip(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     paper_id: &str,
     file_name: Option<&str>,
     zip_bytes: Vec<u8>,
@@ -89,28 +97,31 @@ pub(crate) async fn replace_paper_zip(
     validate_uploaded_zip(&zip_bytes)?;
 
     let normalized_file_name = normalize_upload_file_name(file_name, "paper.zip");
-    let mut tx = pool
+    let mut tx = object_store
+        .pool()
         .begin()
         .await
         .context("begin paper file replace tx failed")?;
 
-    let previous_object_id = query(
-        "SELECT append_object_id::text AS append_object_id FROM papers WHERE paper_id = $1::uuid AND deleted_at IS NULL FOR UPDATE",
+    let previous_row = query(
+        "SELECT p.append_object_id::text AS append_object_id, o.storage_path FROM papers p LEFT JOIN objects o ON o.object_id = p.append_object_id WHERE p.paper_id = $1::uuid AND p.deleted_at IS NULL FOR UPDATE",
     )
     .bind(paper_id)
     .fetch_optional(&mut *tx)
     .await
     .context("load paper appendix reference failed")?
-    .map(|row| row.get::<Option<String>, _>("append_object_id"))
     .ok_or_else(|| NotFoundError(format!("paper not found: {paper_id}")))?;
+    let previous_object_id: Option<String> = previous_row.get("append_object_id");
+    let previous_storage_path: Option<String> = previous_row.get("storage_path");
 
-    let append_object_id = insert_object_tx(
-        &mut tx,
-        &normalized_file_name,
-        &zip_bytes,
-        Some("application/zip"),
-    )
-    .await?;
+    let append_object_id = object_store
+        .insert_object_tx(
+            &mut tx,
+            &normalized_file_name,
+            &zip_bytes,
+            Some("application/zip"),
+        )
+        .await?;
 
     query("UPDATE papers SET append_object_id = $2::uuid, updated_at = NOW() WHERE paper_id = $1::uuid")
         .bind(paper_id)
@@ -119,9 +130,9 @@ pub(crate) async fn replace_paper_zip(
         .await
         .context("update paper appendix object failed")?;
 
-    if let Some(previous_object_id) = previous_object_id {
+    if let Some(previous_object_id) = &previous_object_id {
         query("DELETE FROM objects WHERE object_id = $1::uuid")
-            .bind(&previous_object_id)
+            .bind(previous_object_id)
             .execute(&mut *tx)
             .await
             .context("delete previous paper appendix object failed")?;
@@ -130,6 +141,11 @@ pub(crate) async fn replace_paper_zip(
     tx.commit()
         .await
         .context("commit paper file replace failed")?;
+
+    // Clean up old file from disk after successful commit.
+    if let Some(path) = previous_storage_path {
+        object_store.delete_object_files(&[path]);
+    }
 
     Ok(PaperFileReplaceResponse {
         paper_id: paper_id.to_string(),

@@ -1,6 +1,6 @@
 # Questions API
 
-> 题目的增删改查、文件替换、审阅人管理、难度管理和批量打包接口。
+> 题目的增删改查、文件替换、审阅人管理、难度管理、对象下载和批量打包接口。
 
 所有请求需携带 `Authorization: Bearer <access_token>` 头。普通账号使用 JWT access token；bot 使用管理员签发的长期 access token。
 
@@ -33,6 +33,7 @@
 - 上传时，后端自动设置 difficulty 为空、status 为 `none`、author 为上传者 display_name、reviewers 为 `[]`
 - 后端自动维护 `created_by`、`created_at`、`updated_at`
 - 题目创建者（`created_by`）始终可修改自己题目的 description、category、tags 和 file，不受 status 限制
+- 题目 TeX 和资源文件以对象形式存储；`QuestionDetail.tex_object_id` 和 `QuestionDetail.assets[].object_id` 可通过 `GET /objects/:object_id` 下载
 
 ---
 
@@ -80,7 +81,68 @@
 
 ### `QuestionDetail`
 
-在 `QuestionSummary` 基础上增加 `tex_object_id`、`assets`、`papers`。
+```json
+{
+  "question_id": "uuid",
+  "tex_object_id": "uuid",
+  "source": { "tex": "problem.tex" },
+  "category": "T",
+  "status": "reviewed",
+  "description": "热学标定 gamma",
+  "score": 20,
+  "author": "张三",
+  "reviewers": ["李四"],
+  "tags": ["optics", "thermodynamics"],
+  "difficulty": {},
+  "created_by": "uuid or null",
+  "created_at": "2026-01-01T00:00:00.000Z",
+  "updated_at": "2026-01-01T00:00:00.000Z",
+  "assets": [
+    {
+      "path": "assets/fig1.png",
+      "file_kind": "asset",
+      "object_id": "uuid",
+      "mime_type": "image/png"
+    }
+  ],
+  "papers": [
+    {
+      "paper_id": "uuid",
+      "description": "综合训练试卷 A",
+      "title": "综合训练 2026 A 卷",
+      "subtitle": "校内选拔 初版",
+      "sort_order": 1
+    }
+  ]
+}
+```
+
+在 `QuestionSummary` 基础上增加以下字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `tex_object_id` | string(UUID) | TeX 源文件对象 ID，可通过 `GET /objects/:object_id` 下载 |
+| `assets` | object[] | 题目资源文件列表 |
+| `papers` | object[] | 引用该题目的未软删除试卷列表 |
+
+`assets[]` 字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `path` | string | 资源文件相对路径，如 `assets/fig1.png` |
+| `file_kind` | string | 当前固定为 `"asset"` |
+| `object_id` | string(UUID) | 对象 ID，可通过 `GET /objects/:object_id` 下载 |
+| `mime_type` | string \| null | 推断出的 MIME 类型 |
+
+`papers[]` 字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `paper_id` | string(UUID) | 试卷 ID |
+| `description` | string | 试卷描述 |
+| `title` | string | 试卷标题 |
+| `subtitle` | string | 试卷副标题 |
+| `sort_order` | int | 该题目在试卷中的顺序 |
 
 ---
 
@@ -167,6 +229,32 @@
 ### `GET /questions/:question_id`
 
 返回单个题目详情。认证：`viewer` 及以上。
+
+---
+
+### `GET /objects/:object_id`
+
+下载单个对象文件。该接口主要用于读取题目详情里的 `tex_object_id` 和 `assets[].object_id`。
+
+- **认证**：`viewer` 及以上
+- **路径参数**：`object_id` — UUID
+
+**成功响应** `200`：
+
+- **Content-Type**：对象记录中的 `mime_type`；缺失时回退为 `application/octet-stream`
+- **Header**：
+  - `content-disposition: inline; filename="<original file name>"`
+  - `content-length`
+  - `cache-control: public, max-age=31536000, immutable`
+  - 若对象有内容哈希，还会返回 `etag`
+- **Body**：对象原始二进制内容
+
+**缓存行为**：
+
+- 支持 `If-None-Match`
+- 当请求头中的 ETag 命中对象内容哈希时返回 `304 Not Modified`
+
+**错误**：`404` — 对象不存在
 
 ---
 
@@ -365,3 +453,43 @@
 ### `POST /questions/bundles`
 
 批量下载题目 zip 打包。认证：`viewer` 及以上。
+
+- **Content-Type**：`application/json`
+
+**请求体**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `question_ids` | string(UUID)[] | ✅ | 题目 ID 列表，非空、去重、每项必须为有效 UUID |
+
+```json
+{
+  "question_ids": ["uuid-1", "uuid-2"]
+}
+```
+
+**成功响应** `200`：
+
+- **Content-Type**：`application/zip`
+- **Header** 含 `content-disposition` 和 `content-length`
+
+**ZIP 结构**：
+
+```
+manifest.json
+热学标定gamma_550e84/
+  problem.tex
+  assets/
+    fig1.png
+```
+
+- `manifest.json`：题目元数据和文件清单
+- 每个题目目录命名：`{description}_{uuid前6位}/`
+- 目录内保留原始 TeX 路径和 `assets/` 结构
+
+**错误**：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | 列表为空 / 含无效 UUID / 有重复 |
+| `404` | 有题目不存在或已软删除 |

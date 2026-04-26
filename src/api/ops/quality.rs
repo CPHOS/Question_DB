@@ -23,16 +23,31 @@ pub(crate) async fn object_exists(pool: &PgPool, object_id: &str) -> Result<bool
 }
 
 pub(crate) async fn object_blob_nonempty(pool: &PgPool, object_id: &str) -> Result<bool> {
-    let row = query("SELECT octet_length(content) AS size FROM objects WHERE object_id = $1::uuid")
-        .bind(object_id)
-        .fetch_optional(pool)
-        .await
-        .with_context(|| format!("check object blob failed: {object_id}"))?;
+    let row = query(
+        "SELECT size_bytes, storage_path, octet_length(content) AS content_size FROM objects WHERE object_id = $1::uuid",
+    )
+    .bind(object_id)
+    .fetch_optional(pool)
+    .await
+    .with_context(|| format!("check object blob failed: {object_id}"))?;
 
-    Ok(row
-        .and_then(|r| r.try_get::<Option<i32>, _>("size").ok().flatten())
-        .unwrap_or(0)
-        > 0)
+    match row {
+        Some(r) => {
+            // If migrated to filesystem, check size_bytes > 0
+            let storage_path: Option<String> = r.get("storage_path");
+            if storage_path.is_some() {
+                let size_bytes: i64 = r.get("size_bytes");
+                return Ok(size_bytes > 0);
+            }
+            // Legacy: check content BYTEA length
+            Ok(r.try_get::<Option<i32>, _>("content_size")
+                .ok()
+                .flatten()
+                .unwrap_or(0)
+                > 0)
+        }
+        None => Ok(false),
+    }
 }
 
 pub(crate) async fn build_quality_report(pool: &PgPool) -> Result<QualityReport> {

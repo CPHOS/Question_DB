@@ -22,10 +22,12 @@ pub use self::papers::models::{PaperDetail, PaperSummary};
 pub use self::questions::models::{
     QuestionAssetRef, QuestionDetail, QuestionPaperRef, QuestionSummary,
 };
+pub use self::shared::db::ObjectStore;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    pub object_store: ObjectStore,
     pub database_url: String,
     pub export_dir: PathBuf,
     pub jwt_secret: String,
@@ -148,6 +150,10 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         .route(
             "/papers/bundles",
             axum::routing::post(papers::handlers::download_papers_bundle),
+        )
+        .route(
+            "/objects/:object_id",
+            axum::routing::get(shared::serve::get_object),
         )
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),

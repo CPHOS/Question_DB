@@ -1,6 +1,6 @@
 use anyhow::Result;
 use qb_api::{
-    api::{hash_password, router, seed_admin_if_empty, AppState},
+    api::{hash_password, router, seed_admin_if_empty, AppState, ObjectStore},
     config::AppConfig,
     db::create_pool,
 };
@@ -30,8 +30,18 @@ async fn main() -> Result<()> {
         Err(e) => tracing::warn!("could not hash default password: {e}"),
     }
 
+    // Initialise filesystem-backed object store and migrate any legacy BYTEA
+    // objects to disk.  This is idempotent and fast when nothing needs migrating.
+    let object_store = ObjectStore::new(pool.clone(), cfg.object_store_dir.clone())?;
+    object_store
+        .migrate_legacy_objects()
+        .await
+        .inspect_err(|e| tracing::warn!("legacy object migration skipped: {e}"))
+        .ok();
+
     let state = AppState {
         pool,
+        object_store,
         database_url: cfg.database_url.clone(),
         export_dir: cfg.export_dir.clone(),
         jwt_secret: cfg.jwt_secret.clone(),
