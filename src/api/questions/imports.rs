@@ -134,7 +134,7 @@ pub(crate) async fn replace_question_zip(
     replace_question_files_tx(object_store, &mut tx, question_id, &loaded).await?;
 
     query(
-        "UPDATE questions SET source_tex_path = $2, score = $3, updated_at = NOW() WHERE question_id = $1::uuid",
+        "UPDATE questions SET source_tex_path = $2, score = $3, status = 'none', updated_at = NOW() WHERE question_id = $1::uuid",
     )
     .bind(question_id)
     .bind(&loaded.tex_file.path)
@@ -142,6 +142,12 @@ pub(crate) async fn replace_question_zip(
     .execute(&mut *tx)
     .await
     .context("update question on file replace failed")?;
+
+    query("DELETE FROM question_difficulties WHERE question_id = $1::uuid")
+        .bind(question_id)
+        .execute(&mut *tx)
+        .await
+        .context("clear difficulty entries on file replace failed")?;
 
     tx.commit()
         .await
@@ -411,7 +417,7 @@ async fn replace_question_files_tx(
     loaded: &LoadedQuestionZip,
 ) -> Result<()> {
     let old_rows = query(
-        "SELECT object_id::text AS object_id, storage_path FROM question_files qf JOIN objects o ON o.object_id = qf.object_id WHERE qf.question_id = $1::uuid",
+        "SELECT qf.object_id::text AS object_id, o.storage_path FROM question_files qf JOIN objects o ON o.object_id = qf.object_id WHERE qf.question_id = $1::uuid",
     )
     .bind(question_id)
     .fetch_all(&mut **tx)

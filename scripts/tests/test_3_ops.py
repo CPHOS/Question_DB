@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import gzip
 import json
+import tarfile
 import uuid
 
 from .config import DB_BACKUP_PATH, DOWNLOADS_DIR, EXPORT_PATH, QUALITY_PATH
@@ -91,14 +93,15 @@ def test_quality_check_path_traversal(api):
 
 def test_database_backup_download(api):
     backup_bytes, headers = api.download_file("/database/backup", DB_BACKUP_PATH)
-    sql_text = backup_bytes.decode("utf-8", errors="replace")
 
-    assert headers["content-type"] == "application/sql"
+    assert headers["content-type"] == "application/gzip"
     assert "attachment;" in headers["content-disposition"]
-    assert ".sql" in headers["content-disposition"]
-    assert sql_text.startswith("--")
-    assert "CREATE TABLE public.questions" in sql_text
-    assert "CREATE TABLE public.users" in sql_text
+    assert ".tar.gz" in headers["content-disposition"]
+
+    # Verify it's a valid gzip/tar archive containing metadata.sql
+    with tarfile.open(fileobj=gzip.open(DB_BACKUP_PATH), mode="r:") as tar:
+        names = tar.getnames()
+    assert "metadata.sql" in names
 
 
 def test_database_restore_round_trip(api, state):
@@ -118,7 +121,7 @@ def test_database_restore_round_trip(api, state):
         api.upload(
             "/database/restore",
             file_path=DB_BACKUP_PATH,
-            file_content_type="application/sql",
+            file_content_type="application/gzip",
         )[1]
     )
     assert restored == {
