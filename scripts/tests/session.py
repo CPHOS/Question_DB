@@ -331,12 +331,15 @@ class ApiClient:
 
     def start_api(self) -> None:
         self._api_log = API_LOG_PATH.open("wb")
+        object_store_dir = TMP_DIR / "object_store"
+        object_store_dir.mkdir(parents=True, exist_ok=True)
         env = {
             **os.environ,
             "QB_DATABASE_URL": DB_URL,
             "QB_BIND_ADDR": f"127.0.0.1:{API_PORT}",
             "QB_EXPORT_DIR": str(TMP_DIR),
             "QB_POSTGRES_CONTAINER_NAME": CONTAINER_NAME,
+            "QB_OBJECT_STORE_DIR": str(object_store_dir),
         }
         self._api_proc = subprocess.Popen(
             ["cargo", "run"], cwd=ROOT_DIR, env=env,

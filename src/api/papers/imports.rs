@@ -104,7 +104,7 @@ pub(crate) async fn replace_paper_zip(
         .context("begin paper file replace tx failed")?;
 
     let previous_row = query(
-        "SELECT p.append_object_id::text AS append_object_id, o.storage_path FROM papers p LEFT JOIN objects o ON o.object_id = p.append_object_id WHERE p.paper_id = $1::uuid AND p.deleted_at IS NULL FOR UPDATE",
+        "SELECT p.append_object_id::text AS append_object_id, o.storage_path FROM papers p LEFT JOIN objects o ON o.object_id = p.append_object_id WHERE p.paper_id = $1::uuid AND p.deleted_at IS NULL FOR UPDATE OF p",
     )
     .bind(paper_id)
     .fetch_optional(&mut *tx)
