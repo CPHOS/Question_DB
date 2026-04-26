@@ -10,7 +10,7 @@ use serde_json::json;
 
 use super::{
     database::{
-        backup_download_name, finish_sql_download_response, generate_database_backup,
+        backup_download_name, finish_backup_download_response, generate_database_backup,
         normalize_uploaded_backup_name, restore_database_backup as restore_database_from_backup,
         temp_backup_path, temp_restore_upload_path, MAX_RESTORE_UPLOAD_BYTES,
     },
@@ -47,8 +47,24 @@ pub(crate) async fn run_export(
     ensure_parent_dir(&output_path, "export")?;
 
     let exported_count = match request.format {
-        ExportFormat::Jsonl => export_jsonl(&state.pool, &output_path, request.public).await?,
-        ExportFormat::Csv => export_csv(&state.pool, &output_path, request.public).await?,
+        ExportFormat::Jsonl => {
+            export_jsonl(
+                &state.pool,
+                &state.object_store,
+                &output_path,
+                request.public,
+            )
+            .await?
+        }
+        ExportFormat::Csv => {
+            export_csv(
+                &state.pool,
+                &state.object_store,
+                &output_path,
+                request.public,
+            )
+            .await?
+        }
     };
 
     Ok(Json(ExportResponse {
@@ -94,11 +110,15 @@ pub(crate) async fn download_database_backup(
     State(state): State<AppState>,
 ) -> Result<Response, ApiError> {
     let backup_path = temp_backup_path();
-    generate_database_backup(state.database_url.clone(), backup_path.clone())
-        .await
-        .map_err(ops_internal)?;
+    generate_database_backup(
+        state.database_url.clone(),
+        state.object_store.store_dir().to_path_buf(),
+        backup_path.clone(),
+    )
+    .await
+    .map_err(ops_internal)?;
 
-    finish_sql_download_response(backup_path, &backup_download_name())
+    finish_backup_download_response(backup_path, &backup_download_name())
         .await
         .map_err(ops_internal)
 }
@@ -122,8 +142,12 @@ pub(crate) async fn restore_database_backup(
         })
         .map_err(ops_internal)?;
 
-    let restore_result =
-        restore_database_from_backup(state.database_url.clone(), upload_path.clone()).await;
+    let restore_result = restore_database_from_backup(
+        state.database_url.clone(),
+        state.object_store.store_dir().to_path_buf(),
+        upload_path.clone(),
+    )
+    .await;
     std::fs::remove_file(&upload_path).ok();
     restore_result.map_err(ops_internal)?;
 

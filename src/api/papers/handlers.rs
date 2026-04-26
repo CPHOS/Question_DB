@@ -133,7 +133,7 @@ pub(crate) async fn create_paper(
 
     Ok(Json(
         import_paper_zip(
-            &state.pool,
+            &state.object_store,
             file_name.as_deref(),
             &request,
             bytes,
@@ -151,7 +151,7 @@ pub(crate) async fn download_papers_bundle(
     let paper_ids = request
         .normalize()
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    build_paper_bundle_response(&state.pool, &paper_ids)
+    build_paper_bundle_response(&state.object_store, &paper_ids)
         .await
         .map_err(ApiError::from)
 }
@@ -169,7 +169,7 @@ pub(crate) async fn replace_paper_file(
     validate_upload_size(&bytes, MAX_UPLOAD_BYTES)?;
 
     Ok(Json(
-        replace_paper_zip(&state.pool, &paper_id, file_name.as_deref(), bytes)
+        replace_paper_zip(&state.object_store, &paper_id, file_name.as_deref(), bytes)
             .await
             .map_err(ApiError::from)?,
     ))

@@ -27,15 +27,18 @@ services:
       db:
         condition: service_healthy
     environment:
+      RUST_LOG: qb_api=info,tower_http=info
       QB_DATABASE_URL: ${QB_DATABASE_URL}
       QB_BIND_ADDR: 0.0.0.0:8080
       QB_EXPORT_DIR: ${QB_EXPORT_DIR:-/var/lib/qb/exports}
       QB_MAX_DB_CONNECTIONS: ${QB_MAX_DB_CONNECTIONS:-20}
       QB_CORS_ORIGINS: ${QB_CORS_ORIGINS:-}
       QB_JWT_SECRET: ${QB_JWT_SECRET}
+      QB_OBJECT_STORE_DIR: ${QB_OBJECT_STORE_DIR:-/var/lib/qb/objects}
     ports:
       - "${QB_BIND_PORT:-8080}:8080"
     volumes:
+      - qb_object_store:${QB_OBJECT_STORE_DIR:-/var/lib/qb/objects}
       - qb_exports:${QB_EXPORT_DIR:-/var/lib/qb/exports}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1"]
@@ -46,4 +49,5 @@ services:
 
 volumes:
   qb_postgres_data:
+  qb_object_store:
   qb_exports:

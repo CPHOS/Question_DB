@@ -17,7 +17,7 @@ use crate::api::{
         models::QuestionSourceRef,
         queries::{load_question_difficulties, load_question_files, load_question_tags},
     },
-    shared::{db::fetch_text_object, utils::canonical_or_original},
+    shared::{db::ObjectStore, utils::canonical_or_original},
 };
 
 pub(crate) fn default_export_path(format: ExportFormat, is_public: bool) -> PathBuf {
@@ -43,6 +43,7 @@ pub(crate) fn ensure_parent_dir(output_path: &Path, label: &str) -> Result<()> {
 
 pub(crate) async fn export_jsonl(
     pool: &PgPool,
+    object_store: &ObjectStore,
     output_path: &Path,
     include_tex_source: bool,
 ) -> Result<usize> {
@@ -99,7 +100,7 @@ pub(crate) async fn export_jsonl(
 
         if include_tex_source && !tex_object_id.is_empty() {
             payload["tex_source"] =
-                serde_json::Value::String(fetch_text_object(pool, &tex_object_id).await?);
+                serde_json::Value::String(object_store.fetch_text_object(&tex_object_id).await?);
         }
 
         writer
@@ -114,6 +115,7 @@ pub(crate) async fn export_jsonl(
 
 pub(crate) async fn export_csv(
     pool: &PgPool,
+    object_store: &ObjectStore,
     output_path: &Path,
     include_tex_source: bool,
 ) -> Result<usize> {
@@ -183,7 +185,7 @@ pub(crate) async fn export_csv(
             row.get::<String, _>("created_at"),
             row.get::<String, _>("updated_at"),
             if include_tex_source && !tex_object_id.is_empty() {
-                fetch_text_object(pool, &tex_object_id).await?
+                object_store.fetch_text_object(&tex_object_id).await?
             } else {
                 String::new()
             },

@@ -12,6 +12,7 @@ use crate::api::{
         load_question_difficulties_batch, load_question_tags_batch, map_question_summary,
     },
     shared::{
+        db::ObjectStore,
         details::{load_paper_detail, load_question_detail, DetailVisibility, TIMESTAMP_SQL},
         error::{ConflictError, NotFoundError},
         utils::escape_ilike,
@@ -432,16 +433,20 @@ pub(crate) async fn restore_paper(pool: &PgPool, paper_id: &str) -> Result<Admin
 }
 
 pub(crate) async fn preview_garbage_collection(pool: &PgPool) -> Result<GarbageCollectionResponse> {
-    execute_garbage_collection(pool, true).await
+    execute_garbage_collection(pool, true, None).await
 }
 
-pub(crate) async fn run_garbage_collection(pool: &PgPool) -> Result<GarbageCollectionResponse> {
-    execute_garbage_collection(pool, false).await
+pub(crate) async fn run_garbage_collection(
+    pool: &PgPool,
+    object_store: &ObjectStore,
+) -> Result<GarbageCollectionResponse> {
+    execute_garbage_collection(pool, false, Some(object_store)).await
 }
 
 async fn execute_garbage_collection(
     pool: &PgPool,
     dry_run: bool,
+    object_store: Option<&ObjectStore>,
 ) -> Result<GarbageCollectionResponse> {
     let mut tx = pool
         .begin()
@@ -483,7 +488,7 @@ async fn execute_garbage_collection(
           AND NOT EXISTS (
                   SELECT 1 FROM papers p WHERE p.append_object_id = o.object_id
               )
-        RETURNING o.size_bytes
+        RETURNING o.size_bytes, o.storage_path
         "#,
     )
     .fetch_all(&mut *tx)
@@ -491,9 +496,13 @@ async fn execute_garbage_collection(
     .context("purge orphaned objects failed")?;
     let deleted_objects = deleted_object_rows.len();
     let freed_bytes = deleted_object_rows
-        .into_iter()
+        .iter()
         .map(|row| row.get::<i64, _>("size_bytes"))
         .sum();
+    let deleted_storage_paths: Vec<String> = deleted_object_rows
+        .iter()
+        .filter_map(|row| row.get::<Option<String>, _>("storage_path"))
+        .collect();
 
     if dry_run {
         tx.rollback()
@@ -503,6 +512,10 @@ async fn execute_garbage_collection(
         tx.commit()
             .await
             .context("commit garbage collection failed")?;
+        // Clean up object files from disk after successful commit.
+        if let Some(store) = object_store {
+            store.delete_object_files(&deleted_storage_paths);
+        }
     }
 
     Ok(GarbageCollectionResponse {

@@ -138,7 +138,7 @@ pub(crate) async fn download_questions_bundle(
     let question_ids = request
         .normalize()
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    build_question_bundle_response(&state.pool, &question_ids)
+    build_question_bundle_response(&state.object_store, &question_ids)
         .await
         .map_err(ApiError::from)
 }
@@ -196,7 +196,7 @@ pub(crate) async fn create_question(
 
     Ok(Json(
         import_question_zip(
-            &state.pool,
+            &state.object_store,
             file_name.as_deref(),
             &request,
             bytes,
@@ -227,7 +227,7 @@ pub(crate) async fn replace_question_file(
 
     Ok(Json(
         replace_question_zip(
-            &state.pool,
+            &state.object_store,
             &question_id,
             file_name.as_deref(),
             bytes,

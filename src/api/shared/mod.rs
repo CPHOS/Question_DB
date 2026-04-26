@@ -4,4 +4,5 @@ pub(crate) mod details;
 pub(crate) mod error;
 pub(crate) mod multipart;
 pub(crate) mod pagination;
+pub(crate) mod serve;
 pub(crate) mod utils;

@@ -9,7 +9,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use mime_guess::MimeGuess;
 use regex::Regex;
-use sqlx::{query, PgPool, Postgres, QueryBuilder, Row, Transaction};
+use sqlx::{query, Postgres, QueryBuilder, Row, Transaction};
 use uuid::Uuid;
 use zip::ZipArchive;
 
@@ -17,7 +17,7 @@ use super::models::{
     NormalizedCreateQuestionRequest, QuestionFileReplaceResponse, QuestionImportResponse,
 };
 use crate::api::shared::{
-    db::{insert_object_tx, normalize_upload_file_name},
+    db::{normalize_upload_file_name, ObjectStore},
     error::{NotFoundError, ValidationError},
 };
 
@@ -38,7 +38,7 @@ struct LoadedQuestionZip {
 }
 
 pub(crate) async fn import_question_zip(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     file_name: Option<&str>,
     request: &NormalizedCreateQuestionRequest,
     zip_bytes: Vec<u8>,
@@ -54,7 +54,8 @@ pub(crate) async fn import_question_zip(
 
     let loaded = load_question_zip(&zip_bytes).map_err(|e| ValidationError(format!("{e:#}")))?;
     let question_id = Uuid::new_v4().to_string();
-    let mut tx = pool
+    let mut tx = object_store
+        .pool()
         .begin()
         .await
         .context("begin question import tx failed")?;
@@ -83,7 +84,7 @@ pub(crate) async fn import_question_zip(
     .await
     .context("insert uploaded question failed")?;
 
-    insert_loaded_question_files_tx(&mut tx, &question_id, &loaded).await?;
+    insert_loaded_question_files_tx(object_store, &mut tx, &question_id, &loaded).await?;
     insert_question_tags_tx(&mut tx, &question_id, &request.tags).await?;
     // No difficulty entries inserted — difficulty starts empty.
 
@@ -98,7 +99,7 @@ pub(crate) async fn import_question_zip(
 }
 
 pub(crate) async fn replace_question_zip(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     question_id: &str,
     file_name: Option<&str>,
     zip_bytes: Vec<u8>,
@@ -112,7 +113,8 @@ pub(crate) async fn replace_question_zip(
 
     let loaded = load_question_zip(&zip_bytes).map_err(|e| ValidationError(format!("{e:#}")))?;
     let normalized_file_name = normalize_upload_file_name(file_name, "question.zip");
-    let mut tx = pool
+    let mut tx = object_store
+        .pool()
         .begin()
         .await
         .context("begin question file replace tx failed")?;
@@ -129,7 +131,7 @@ pub(crate) async fn replace_question_zip(
         return Err(NotFoundError(format!("question not found: {question_id}")).into());
     }
 
-    replace_question_files_tx(&mut tx, question_id, &loaded).await?;
+    replace_question_files_tx(object_store, &mut tx, question_id, &loaded).await?;
 
     query(
         "UPDATE questions SET source_tex_path = $2, score = $3, updated_at = NOW() WHERE question_id = $1::uuid",
@@ -340,17 +342,19 @@ fn register_parent_directories(directories: &mut BTreeSet<String>, path: &str) {
 }
 
 async fn insert_loaded_question_files_tx(
+    object_store: &ObjectStore,
     tx: &mut Transaction<'_, Postgres>,
     question_id: &str,
     loaded: &LoadedQuestionZip,
 ) -> Result<()> {
-    let tex_object_id = insert_object_tx(
-        tx,
-        &loaded.tex_file.path,
-        &loaded.tex_file.bytes,
-        Some("text/x-tex"),
-    )
-    .await?;
+    let tex_object_id = object_store
+        .insert_object_tx(
+            tx,
+            &loaded.tex_file.path,
+            &loaded.tex_file.bytes,
+            Some("text/x-tex"),
+        )
+        .await?;
     insert_question_file_tx(
         tx,
         question_id,
@@ -365,7 +369,9 @@ async fn insert_loaded_question_files_tx(
         let mime = MimeGuess::from_path(&asset.path)
             .first_raw()
             .map(str::to_string);
-        let object_id = insert_object_tx(tx, &asset.path, &asset.bytes, mime.as_deref()).await?;
+        let object_id = object_store
+            .insert_object_tx(tx, &asset.path, &asset.bytes, mime.as_deref())
+            .await?;
         insert_question_file_tx(
             tx,
             question_id,
@@ -399,20 +405,23 @@ async fn insert_question_tags_tx(
 }
 
 async fn replace_question_files_tx(
+    object_store: &ObjectStore,
     tx: &mut Transaction<'_, Postgres>,
     question_id: &str,
     loaded: &LoadedQuestionZip,
 ) -> Result<()> {
-    let old_object_ids = query(
-        "SELECT object_id::text AS object_id FROM question_files WHERE question_id = $1::uuid",
+    let old_rows = query(
+        "SELECT object_id::text AS object_id, storage_path FROM question_files qf JOIN objects o ON o.object_id = qf.object_id WHERE qf.question_id = $1::uuid",
     )
     .bind(question_id)
     .fetch_all(&mut **tx)
     .await
-    .context("load existing question file objects failed")?
-    .into_iter()
-    .map(|row| row.get::<String, _>("object_id"))
-    .collect::<Vec<_>>();
+    .context("load existing question file objects failed")?;
+    let old_object_ids: Vec<String> = old_rows.iter().map(|r| r.get("object_id")).collect();
+    let old_storage_paths: Vec<String> = old_rows
+        .iter()
+        .filter_map(|r| r.get::<Option<String>, _>("storage_path"))
+        .collect();
 
     query("DELETE FROM question_files WHERE question_id = $1::uuid")
         .bind(question_id)
@@ -436,7 +445,12 @@ async fn replace_question_files_tx(
             .context("delete previous question file objects failed")?;
     }
 
-    insert_loaded_question_files_tx(tx, question_id, loaded).await
+    insert_loaded_question_files_tx(object_store, tx, question_id, loaded).await?;
+
+    // Delete old files from disk after the DB transaction has removed them.
+    object_store.delete_object_files(&old_storage_paths);
+
+    Ok(())
 }
 
 async fn insert_question_file_tx(

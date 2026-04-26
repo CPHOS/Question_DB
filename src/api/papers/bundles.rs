@@ -20,7 +20,7 @@ use crate::api::{
             finish_zip_response, temp_zip_path, timestamp_unix, write_bundle_file, write_manifest,
             BundleFileEntry,
         },
-        db::fetch_object_bytes,
+        db::ObjectStore,
         error::NotFoundError,
         utils::bundle_directory_name,
     },
@@ -71,7 +71,7 @@ struct PaperAppendixData {
 }
 
 pub(crate) async fn build_paper_bundle_response(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     paper_ids: &[String],
 ) -> Result<axum::response::Response> {
     let bundle_name = format!("papers_bundle_{}.zip", timestamp_unix());
@@ -86,12 +86,12 @@ pub(crate) async fn build_paper_bundle_response(
     let mut manifest_items = Vec::with_capacity(paper_ids.len());
 
     for paper_id in paper_ids {
-        let bundle = load_paper_bundle_data(pool, paper_id).await?;
+        let bundle = load_paper_bundle_data(object_store.pool(), paper_id).await?;
         let directory = bundle_directory_name(&bundle.metadata.description, paper_id);
         let append_file =
-            write_paper_appendix_file(pool, &mut writer, bundle.appendix.as_ref(), &directory)
+            write_paper_appendix_file(object_store, &mut writer, bundle.appendix.as_ref(), &directory)
                 .await?;
-        let rendered = render_paper_bundle(build_render_paper_input(pool, &bundle).await?)?;
+        let rendered = render_paper_bundle(build_render_paper_input(object_store, &bundle).await?)?;
 
         let main_tex_zip_path = format!("{directory}/main.tex");
         write_bundle_file(
@@ -160,7 +160,7 @@ pub(crate) async fn build_paper_bundle_response(
 }
 
 async fn write_paper_appendix_file(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     writer: &mut ZipWriter<File>,
     appendix: Option<&PaperAppendixData>,
     directory: &str,
@@ -170,7 +170,7 @@ async fn write_paper_appendix_file(
     };
 
     let zip_path = format!("{directory}/append.zip");
-    let bytes = fetch_object_bytes(pool, &appendix.object_id).await?;
+    let bytes = object_store.fetch_object_bytes(&appendix.object_id).await?;
     write_bundle_file(writer, &zip_path, &bytes)?;
 
     Ok(Some(BundleFileEntry {
@@ -244,14 +244,16 @@ async fn load_paper_bundle_data(pool: &PgPool, paper_id: &str) -> Result<PaperBu
 }
 
 async fn build_render_paper_input(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     bundle: &PaperBundleData,
 ) -> Result<RenderPaperInput> {
     let template_kind = determine_paper_template_kind(&bundle.questions)?;
     let mut questions = Vec::with_capacity(bundle.questions.len());
 
     for (index, question) in bundle.questions.iter().enumerate() {
-        let tex_bytes = fetch_object_bytes(pool, &question.metadata.tex_object_id).await?;
+        let tex_bytes = object_store
+            .fetch_object_bytes(&question.metadata.tex_object_id)
+            .await?;
         let source_tex = String::from_utf8(tex_bytes).with_context(|| {
             format!(
                 "question tex object is not valid UTF-8: {}",
@@ -265,7 +267,9 @@ async fn build_render_paper_input(
                 original_path: asset.path.clone(),
                 object_id: asset.object_id.clone(),
                 mime_type: asset.mime_type.clone(),
-                bytes: fetch_object_bytes(pool, &asset.object_id).await?,
+                bytes: object_store
+                    .fetch_object_bytes(&asset.object_id)
+                    .await?,
             });
         }
 

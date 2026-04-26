@@ -10,6 +10,7 @@ pub struct AppConfig {
     pub bind_addr: SocketAddr,
     pub max_db_connections: u32,
     pub export_dir: PathBuf,
+    pub object_store_dir: PathBuf,
     pub cors_origins: Vec<String>,
     pub jwt_secret: String,
 }
@@ -33,6 +34,10 @@ impl AppConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("exports"));
 
+        let object_store_dir = env::var("QB_OBJECT_STORE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/var/lib/qb/objects"));
+
         let cors_origins = env::var("QB_CORS_ORIGINS")
             .unwrap_or_default()
             .split(',')
@@ -48,6 +53,7 @@ impl AppConfig {
             bind_addr,
             max_db_connections,
             export_dir,
+            object_store_dir,
             cors_origins,
             jwt_secret,
         })
@@ -67,6 +73,7 @@ mod tests {
         let prev_bind = env::var("QB_BIND_ADDR").ok();
         let prev_conn = env::var("QB_MAX_DB_CONNECTIONS").ok();
         let prev_export = env::var("QB_EXPORT_DIR").ok();
+        let prev_object_store = env::var("QB_OBJECT_STORE_DIR").ok();
         let prev_cors = env::var("QB_CORS_ORIGINS").ok();
 
         env::set_var(
@@ -76,6 +83,7 @@ mod tests {
         env::remove_var("QB_BIND_ADDR");
         env::remove_var("QB_MAX_DB_CONNECTIONS");
         env::remove_var("QB_EXPORT_DIR");
+        env::remove_var("QB_OBJECT_STORE_DIR");
         env::remove_var("QB_CORS_ORIGINS");
 
         let cfg = AppConfig::from_env().expect("config should load");
@@ -86,6 +94,10 @@ mod tests {
         );
         assert_eq!(cfg.max_db_connections, 10);
         assert_eq!(cfg.export_dir.to_str().unwrap(), "exports");
+        assert_eq!(
+            cfg.object_store_dir.to_str().unwrap(),
+            "/var/lib/qb/objects"
+        );
         assert!(cfg.cors_origins.is_empty());
 
         // Restore
@@ -103,6 +115,10 @@ mod tests {
         }
         match prev_export {
             Some(v) => env::set_var("QB_EXPORT_DIR", v),
+            None => {}
+        }
+        match prev_object_store {
+            Some(v) => env::set_var("QB_OBJECT_STORE_DIR", v),
             None => {}
         }
         match prev_cors {

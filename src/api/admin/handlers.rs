@@ -138,7 +138,7 @@ pub(crate) async fn run_gc(
     Json(_request): Json<GarbageCollectionRequest>,
 ) -> ApiResult<GarbageCollectionResponse> {
     Ok(Json(
-        run_garbage_collection(&state.pool)
+        run_garbage_collection(&state.pool, &state.object_store)
             .await
             .map_err(ApiError::from)?,
     ))

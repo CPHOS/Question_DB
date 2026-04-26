@@ -11,21 +11,23 @@
 
 ### `GET /database/backup`
 
-下载当前数据库的 plain SQL 备份文件。
+下载当前数据库的 `.tar.gz` 备份文件。
 
 - **认证**：`admin`
 - **请求体**：无
 
 **成功响应** `200`：
 
-- **Content-Type**：`application/sql`
+- **Content-Type**：`application/gzip`
 - **Header** 含 `content-disposition`（下载文件名）和 `content-length`
-- **Body**：`pg_dump` 生成的 plain SQL，可按 [部署文档](../../../docs/DEPLOYMENT.md) 中的恢复方式导入
+- **Body**：`.tar.gz` 归档，包含：
+  - `metadata.sql`：`pg_dump` 生成的 plain SQL 元数据备份
+  - `objects/`：对象存储目录中的二进制文件
 
 **说明**：
 
 - 该接口直接返回下载文件，不写入 `QB_EXPORT_DIR`
-- 备份包含 PostgreSQL 中的全部业务表和对象数据（包括 `objects` 表中的题目 zip / 试卷附件内容）
+- 备份同时覆盖 PostgreSQL 元数据和 `QB_OBJECT_STORE_DIR` 中的对象文件
 - 如果内置 `pg_dump` 与数据库 major version 不匹配，接口会返回具体错误提示；需要重建 API 镜像并对齐 PostgreSQL client 版本
 
 ---
@@ -107,14 +109,14 @@
 ```json
 {
   "output_path": "/absolute/path/to/exports/quality_report.json",
-  "report": {
-    "missing_tex_object": ["question-uuid-1"],
-    "missing_tex_source": ["question-uuid-2"],
-    "missing_asset_objects": [
-      { "question_id": "uuid", "path": "assets/fig.png", "object_id": "uuid" }
-    ],
-    "empty_papers": ["paper-uuid-1"]
-  }
+    "report": {
+      "missing_tex_object": ["question-uuid-1"],
+      "missing_tex_source": ["question-uuid-2"],
+      "missing_asset_objects": [
+        { "question_id": "uuid", "file_path": "assets/fig.png", "object_id": "uuid" }
+      ],
+      "empty_papers": ["paper-uuid-1"]
+    }
 }
 ```
 
@@ -123,37 +125,41 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `missing_tex_object` | string[] | tex 对象记录缺失的题目 ID |
-| `missing_tex_source` | string[] | tex 对象内容为空的题目 ID |
-| `missing_asset_objects` | object[] | 资源对象缺失的条目 |
+| `missing_tex_source` | string[] | tex 对象记录存在，但内容为空的题目 ID |
+| `missing_asset_objects` | object[] | 资源对象记录缺失的条目；字段为 `question_id`、`file_path`、`object_id` |
 | `empty_papers` | string[] | 不含任何题目的试卷 ID |
 
 ---
 
 ### `POST /database/restore`
 
-上传 plain SQL 备份并覆盖恢复当前数据库内容。
+上传备份文件并覆盖恢复当前数据库内容。
 
 - **认证**：`admin`
 - **Content-Type**：`multipart/form-data`
-- **大小限制**：上传文件 ≤ 64 MiB
+- **大小限制**：上传文件 ≤ 256 MiB
 
 **Multipart 字段**：
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `file` | binary (sql) | ✅ | 由 `GET /database/backup` 或 `pg_dump` 生成的 plain SQL 文件 |
+| `file` | binary | ✅ | 优先上传 `GET /database/backup` 生成的 `.tar.gz` 文件；也兼容 legacy plain SQL 文件 |
 
 **行为**：
 
-- 先执行 `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
-- 再执行 `psql -v ON_ERROR_STOP=1 -f <uploaded.sql>` 导入上传文件
+- 如果上传的是 `.tar.gz`：
+  - 解压 `metadata.sql`
+  - 执行 `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
+  - 执行 `psql -v ON_ERROR_STOP=1 -f metadata.sql`
+  - 将归档中的 `objects/` 内容复制到 `QB_OBJECT_STORE_DIR`
+- 如果上传的是 legacy `.sql`：仅恢复数据库内容，不写入对象目录
 - 恢复流程与 [部署文档](../../../docs/DEPLOYMENT.md) 中“覆盖当前库”的恢复方法保持一致
 
 **成功响应** `200`：
 
 ```json
 {
-  "file_name": "qb_backup.sql",
+  "file_name": "qb_backup.tar.gz",
   "restored_bytes": 123456,
   "status": "restored"
 }
@@ -163,5 +169,5 @@
 
 | 状态码 | 场景 |
 |---|---|
-| `400` | 缺少 `file` 字段 / 上传文件为空 / 文件超过 64 MiB |
+| `400` | 缺少 `file` 字段 / 上传文件为空 / 文件超过 256 MiB |
 | `500` | `psql` 恢复失败；响应里的 `error` 会尽量返回具体 stderr 提示。如果失败发生在清空 schema 之后，数据库可能已被部分覆盖 |

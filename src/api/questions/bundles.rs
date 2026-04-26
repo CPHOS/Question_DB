@@ -14,7 +14,7 @@ use crate::api::shared::{
         finish_zip_response, temp_zip_path, timestamp_unix, write_bundle_file, write_manifest,
         BundleFileEntry,
     },
-    db::fetch_object_bytes,
+    db::ObjectStore,
     details::{load_question_detail, DetailVisibility},
     utils::bundle_directory_name,
 };
@@ -42,7 +42,7 @@ pub(crate) struct QuestionBundleData {
 }
 
 pub(crate) async fn build_question_bundle_response(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     question_ids: &[String],
 ) -> Result<axum::response::Response> {
     let bundle_name = format!("questions_bundle_{}.zip", timestamp_unix());
@@ -57,10 +57,10 @@ pub(crate) async fn build_question_bundle_response(
     let mut manifest_items = Vec::with_capacity(question_ids.len());
 
     for question_id in question_ids {
-        let bundle = load_question_bundle_data(pool, question_id).await?;
+        let bundle = load_question_bundle_data(object_store.pool(), question_id).await?;
         let directory = bundle_directory_name(&bundle.metadata.description, question_id);
         let manifest_files =
-            write_question_bundle_files(pool, &mut writer, &bundle.files, &directory).await?;
+            write_question_bundle_files(object_store, &mut writer, &bundle.files, &directory).await?;
         manifest_items.push(QuestionBundleManifestItem {
             question_id: question_id.clone(),
             directory,
@@ -129,7 +129,7 @@ pub(crate) fn question_detail_to_summary(detail: &QuestionDetail) -> QuestionSum
 }
 
 async fn write_question_bundle_files(
-    pool: &PgPool,
+    object_store: &ObjectStore,
     writer: &mut ZipWriter<File>,
     files: &[QuestionAssetRef],
     directory: &str,
@@ -138,7 +138,7 @@ async fn write_question_bundle_files(
 
     for file in files {
         let zip_path = format!("{directory}/{}", file.path);
-        let bytes = fetch_object_bytes(pool, &file.object_id).await?;
+        let bytes = object_store.fetch_object_bytes(&file.object_id).await?;
         write_bundle_file(writer, &zip_path, &bytes)?;
 
         manifest_entries.push(BundleFileEntry {
