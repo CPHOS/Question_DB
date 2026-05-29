@@ -18,8 +18,6 @@ use tokio::fs;
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
-pub(crate) const MAX_RESTORE_UPLOAD_BYTES: usize = 256 * 1024 * 1024;
-
 pub(crate) fn backup_download_name() -> String {
     format!("qb_backup_{}.tar.gz", Utc::now().format("%Y%m%d_%H%M%S"))
 }

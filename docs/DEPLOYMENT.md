@@ -166,7 +166,7 @@ cat qb_backup.sql | docker compose --env-file .env -f docker-compose.prod.yml ex
   sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"'
 ```
 
-注意：上面的备份文件是 `pg_dump` 导出的 plain SQL，恢复目标必须是空库；如果直接导入到已有数据的库里，会出现 “relation already exists” 和主键冲突。
+注意：上面的备份文件是 `pg_dump` 导出的 plain SQL，恢复目标必须是空库；如果直接导入到已有数据的库里，会出现 "relation already exists" 和主键冲突。
 
 如果你要覆盖当前库，建议按下面顺序操作：
 
@@ -196,6 +196,75 @@ docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
 ```
 
 如果你需要保留导出产物，也要同步备份 `qb_exports` 这个卷。
+
+### 手动备份还原（绕过 API）
+
+如果备份文件较大或你的反向代理有请求体大小限制，可以直接在服务器上操作，不经过 HTTP 接口。
+
+后端 `GET /database/backup` 接口生成的备份是一个 `tar.gz` 压缩包，内部结构为：
+
+```
+qb_backup_YYYYMMDD_HHMMSS.tar.gz
+├── metadata.sql    # pg_dump 导出的完整 SQL
+└── objects/        # 文件对象存储目录的副本
+```
+
+#### 手动创建备份
+
+```bash
+# 1. 导出数据库 SQL
+docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
+  sh -lc 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > metadata.sql
+
+# 2. 复制 objects 卷内容（如果使用了文件对象存储）
+docker compose --env-file .env -f docker-compose.prod.yml cp api:/app/data/objects ./objects
+
+# 3. 打包成 tar.gz
+tar czf "qb_backup_$(date +%Y%m%d_%H%M%S).tar.gz" metadata.sql objects/
+
+# 4. 清理临时文件
+rm -f metadata.sql && rm -rf objects/
+```
+
+#### 手动还原备份
+
+```bash
+# 1. 停止 API 服务避免写入冲突
+docker compose --env-file .env -f docker-compose.prod.yml stop api
+
+# 2. 解压备份包
+mkdir -p /tmp/qb_restore && tar xzf qb_backup_*.tar.gz -C /tmp/qb_restore
+
+# 3. 清空并恢复数据库
+docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
+  sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"'
+cat /tmp/qb_restore/metadata.sql | docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
+  sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"'
+
+# 4. 恢复 objects 文件（如果备份中包含）
+if [ -d /tmp/qb_restore/objects ]; then
+  docker compose --env-file .env -f docker-compose.prod.yml cp /tmp/qb_restore/objects/. api:/app/data/objects/
+fi
+
+# 5. 重新启动 API 服务（entrypoint 会自动执行 migrations）
+docker compose --env-file .env -f docker-compose.prod.yml start api
+
+# 6. 清理临时文件
+rm -rf /tmp/qb_restore
+```
+
+#### 还原旧的纯 SQL 备份
+
+如果你的备份文件是早期版本导出的纯 `qb_backup.sql`（非 tar.gz 格式），直接还原即可：
+
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml stop api
+docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
+  sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"'
+cat qb_backup.sql | docker compose --env-file .env -f docker-compose.prod.yml exec -T db \
+  sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"'
+docker compose --env-file .env -f docker-compose.prod.yml start api
+```
 
 ## 8. 运维说明
 
