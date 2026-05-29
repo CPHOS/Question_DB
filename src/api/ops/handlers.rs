@@ -12,7 +12,7 @@ use super::{
     database::{
         backup_download_name, finish_backup_download_response, generate_database_backup,
         normalize_uploaded_backup_name, restore_database_backup as restore_database_from_backup,
-        temp_backup_path, temp_restore_upload_path, MAX_RESTORE_UPLOAD_BYTES,
+        temp_backup_path, temp_restore_upload_path,
     },
     exports::{default_export_path, ensure_parent_dir, export_csv, export_jsonl, exported_path},
     models::{
@@ -23,7 +23,7 @@ use super::{
 use crate::api::{
     shared::{
         error::{ApiError, ApiResult},
-        multipart::{read_uploaded_file, validate_upload_size_with_label},
+        multipart::read_uploaded_file,
         utils::{canonical_or_original, resolve_export_path},
     },
     AppState,
@@ -128,7 +128,11 @@ pub(crate) async fn restore_database_backup(
     mut multipart: Multipart,
 ) -> ApiResult<DatabaseRestoreResponse> {
     let (file_name, bytes) = read_uploaded_file(&mut multipart).await?;
-    validate_upload_size_with_label(&bytes, MAX_RESTORE_UPLOAD_BYTES, "uploaded backup file")?;
+    if bytes.is_empty() {
+        return Err(ApiError::bad_request(
+            "multipart form must include a non-empty 'file' field",
+        ));
+    }
 
     let normalized_name = normalize_uploaded_backup_name(file_name.as_deref());
     let upload_path = temp_restore_upload_path(file_name.as_deref());

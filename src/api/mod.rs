@@ -175,9 +175,7 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         .merge(authenticated_routes)
         .merge(admin_routes)
         .layer(DefaultBodyLimit::max(
-            questions::MAX_UPLOAD_BYTES
-                .max(papers::MAX_UPLOAD_BYTES)
-                .max(ops::MAX_RESTORE_UPLOAD_BYTES),
+            questions::MAX_UPLOAD_BYTES.max(papers::MAX_UPLOAD_BYTES),
         ))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
