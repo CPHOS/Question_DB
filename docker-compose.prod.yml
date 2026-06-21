@@ -16,7 +16,7 @@ services:
       start_period: 10s
 
   api:
-    image: ${QB_IMAGE_NAME:-qb_api}:${QB_IMAGE_TAG:-latest}
+    image: ${QB_API_IMAGE:-qb_api}:${QB_API_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -36,7 +36,7 @@ services:
       QB_JWT_SECRET: ${QB_JWT_SECRET}
       QB_OBJECT_STORE_DIR: ${QB_OBJECT_STORE_DIR:-/var/lib/qb/objects}
     ports:
-      - "${QB_BIND_PORT:-8080}:8080"
+      - "${QB_API_PORT:-8080}:8080"
     volumes:
       - qb_object_store:${QB_OBJECT_STORE_DIR:-/var/lib/qb/objects}
       - qb_exports:${QB_EXPORT_DIR:-/var/lib/qb/exports}
