@@ -1,6 +1,7 @@
 //! HTTP API composition for the question bank service.
 
 mod admin;
+mod audit;
 mod auth;
 mod ops;
 mod papers;
@@ -51,10 +52,15 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
             .allow_headers(Any)
     };
 
-    // Public routes (no auth required)
+    // Public routes (no auth required).  The audit layer still records these
+    // calls (login attempts, token refreshes) without a caller identity.
     let public = Router::new()
         .merge(system::router())
-        .merge(auth::public_router());
+        .merge(auth::public_router())
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            audit::audit_log,
+        ));
 
     // Authenticated routes: any logged-in user can access.
     // Fine-grained permission checks are done inside handlers.
@@ -155,6 +161,12 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
             "/objects/:object_id",
             axum::routing::get(shared::serve::get_object),
         )
+        // Audit middleware sits *inside* require_auth so CurrentUser is
+        // available to record who made each call.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            audit::audit_log,
+        ))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth::middleware::require_auth,
@@ -165,6 +177,10 @@ pub fn router(state: AppState, cors_origins: &[String]) -> Router {
         .merge(ops::router())
         .merge(admin::router())
         .layer(axum_middleware::from_fn(auth::middleware::require_admin))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            audit::audit_log,
+        ))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth::middleware::require_auth,

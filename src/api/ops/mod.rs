@@ -1,3 +1,4 @@
+pub(crate) mod audit;
 pub(crate) mod database;
 pub(crate) mod exports;
 pub(crate) mod handlers;
@@ -20,4 +21,6 @@ pub(crate) fn router() -> Router<super::AppState> {
             "/database/restore",
             post(handlers::restore_database_backup).layer(DefaultBodyLimit::disable()),
         )
+        .route("/audit/logs", get(audit::list_audit_logs))
+        .route("/audit/logs/export", get(audit::export_audit_logs))
 }

@@ -4,6 +4,7 @@ use qb_api::{
     config::AppConfig,
     db::create_pool,
 };
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -50,7 +51,7 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(cfg.bind_addr).await?;
 
     tracing::info!(addr = %cfg.bind_addr, "qb_api_rust listening");
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
